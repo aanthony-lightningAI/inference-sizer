@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "customer": "Example Co",
+  "tier": "Interactive chat",
+  "model": {
+    "source": "preset",
+    "preset_id": "llama_3_1_70b",
+    "architecture": "LlamaForCausalLM",
+    "attn": "gqa",
+    "layers": 80,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "attention_heads": 64,
+    "hidden_size": 8192,
+    "total_params": 70600000000,
+    "max_context_tokens": 131072,
+    "weight_format": "bf16",
+    "kv_dtype": "bf16"
+  },
+  "workload": {
+    "mean_input_tokens": 2048,
+    "p95_input_tokens": 8192,
+    "mean_output_tokens": 512,
+    "p95_output_tokens": 2048,
+    "peak_rps": 20,
+    "peak_inflight": 160,
+    "ttft_ms_p95": 800,
+    "decode_ms_p95": 40,
+    "decode_metric": "itl",
+    "prefix_hit_rate": 0.4
+  },
+  "deployment": {
+    "hardware_profile_id": "hgx_b200",
+    "engine": { "name": "vllm", "version": "0.11.x" },
+    "max_gpus_per_replica": 8,
+    "spare_replicas": 1,
+    "operating_factor": 0.65
+  }
+}

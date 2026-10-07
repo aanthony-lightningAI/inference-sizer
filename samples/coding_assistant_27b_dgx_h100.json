@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "customer": "Example Co",
+  "tier": "Coding assistant (27B-class, multi-GPU GQA)",
+  "model": {
+    "source": "manual",
+    "architecture": "Qwen2ForCausalLM",
+    "attn": "gqa",
+    "layers": 64,
+    "kv_heads": 8,
+    "head_dim": 128,
+    "attention_heads": 40,
+    "hidden_size": 5120,
+    "total_params": 32700000000,
+    "max_context_tokens": 131072,
+    "weight_format": "fp8",
+    "kv_dtype": "fp8"
+  },
+  "workload": {
+    "mean_input_tokens": 4096,
+    "p95_input_tokens": 16384,
+    "mean_output_tokens": 1024,
+    "p95_output_tokens": 4096,
+    "peak_rps": 0,
+    "peak_inflight": 0,
+    "active_users": 40,
+    "requests_per_active_per_hour": 30,
+    "calls_per_task": 3,
+    "ttft_ms_p95": 2000,
+    "decode_ms_p95": 50,
+    "decode_metric": "itl",
+    "prefix_hit_rate": 0.5
+  },
+  "deployment": {
+    "hardware_profile_id": "dgx_h100",
+    "engine": { "name": "vllm", "version": "0.11.x" },
+    "max_gpus_per_replica": 4,
+    "spare_replicas": 1,
+    "operating_factor": 0.65
+  }
+}

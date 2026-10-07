@@ -6,33 +6,35 @@ evidence supporting latency and capacity claims.
 
 Status: **Estimated-mode prototype.** No GPU benchmarks have been run;
 calibration is pending (see `docs/benchmark-collection.md`). Branding uses
-provisional assets scraped from lightning.ai pending the official brand kit.
+provisional assets scraped from lightning.ai pending the official brand kit —
+never represent them as approved Lightning branding.
 
-## Layout
+## Architecture
 
-- `server.py` — FastAPI app (`/api/health`, `/api/catalog`, `/api/size`) that also
-  serves the built frontend from `web/dist` under one origin.
+- `server.py` — FastAPI app (`/api/health`, `/api/catalog`, `/api/size`) that
+  also serves the built frontend from `web/dist` under one origin. CORS is
+  restricted to `CORS_ORIGINS` (comma-separated env var; empty = same-origin).
 - `sizer/` — calculation package shared by the API and CLI.
-  - `schemas.py` versioned request/result models
-  - `normalize.py` model normalization + provenance
-  - `hardware.py` / `data/hardware.json` hardware catalog with source metadata
-  - `engine.py` pure sizing logic
-  - `benchmarks.py` versioned benchmark profile adapter
-- `web/` — Vite/JS frontend (no framework).
-- `tests/` — regression and integration checks (repo root).
+  - `schemas.py` versioned request/result models (`schema_version: 1`)
+  - `normalize.py` model normalization + provenance (preset / config.json / manual / inferred)
+  - `hardware.py` + `data/hardware.json` seven-profile catalog with source metadata and independent statuses
+  - `engine.py` pure sizing logic (validation, per-device memory, KV, latency bounds, fleet)
+  - `benchmarks.py` `benchmark_profile/v1` adapter + compatibility matching
+- `web/` — Vite/JS frontend, no framework. Brand tokens centralized in `web/src/theme/`.
+- `tests/` — regression + integration checks (51).
 - `docs/` — baseline failure record, benchmark collection instructions.
-- `fixtures/benchmarks/` — synthetic benchmark profiles (marked synthetic; never
-  real calibration evidence).
+- `fixtures/benchmarks/` — synthetic profiles (marked synthetic; never calibration evidence).
+- `samples/` — ready-to-run request scenarios.
 
 ## Run (dev)
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r inference-sizer/requirements.txt
-cd inference-sizer/web && npm install && npm run build && cd ../..
+cd inference-sizer/web && npm ci && npm run build && cd ../..
 cd inference-sizer && ../.venv/bin/python -m uvicorn server:app --reload --port 8000
 ```
 
-Open http://127.0.0.1:8000 — the API and the built frontend share one origin.
+Open http://127.0.0.1:8000 — API and frontend on one origin.
 
 ## Run (container)
 
@@ -40,44 +42,58 @@ Open http://127.0.0.1:8000 — the API and the built frontend share one origin.
 docker build -t inference-sizer . && docker run -p 8000:8000 inference-sizer
 ```
 
-## CLI
+## CLI (same calculation path as the API)
 
 ```bash
-cd inference-sizer && ../.venv/bin/python -m sizer.cli            # defaults
-../.venv/bin/python -m sizer.cli request.json                     # from file
-../.venv/bin/python -m sizer.cli --export scenario.json           # full export
+cd inference-sizer && ../.venv/bin/python -m sizer.cli ../samples/70b_chat_hgx_b200.json
+../.venv/bin/python -m sizer.cli ../samples/70b_chat_hgx_b200.json --export scenario.json
 ```
 
-## Sample requests
-
-Health:
+## Tests
 
 ```bash
-curl -s http://127.0.0.1:8000/api/health
+.venv/bin/python -m pytest tests/ -q
 ```
 
-Catalog (versioned presets, hardware profiles with source metadata):
+## Sample scenarios
 
-```bash
-curl -s http://127.0.0.1:8000/api/catalog | python3 -m json.tool | head -50
-```
+| File | What it demonstrates |
+| --- | --- |
+| `samples/70b_chat_hgx_b200.json` | 70B GQA interactive chat on HGX B200 |
+| `samples/coding_assistant_27b_dgx_h100.json` | 27-31B coding assistant; active-user cadence + calls-per-task conversion |
+| `samples/rag_long_context_hgx_b300.json` | Long-context RAG; multi-GPU replica; allocation size distinct from GPUs/replica |
+| `samples/smoke_8b_synthetic_fixture.json` | 8B smoke test with a synthetic benchmark: adapter accepts it but it stays Estimated (synthetic fixtures are never calibration evidence) |
 
-Size (70B GQA on HGX B200, interactive chat):
+## Sizing behavior (summary)
 
-```bash
-curl -s http://127.0.0.1:8000/api/size -H 'content-type: application/json' -d '{
-  "schema_version": 1,
-  "customer": "Example Co",
-  "model": {"preset_id": "llama_3_1_70b", "weight_format": "bf16", "kv_dtype": "bf16"},
-  "workload": {"mean_input_tokens": 2048, "p95_input_tokens": 8192,
-               "mean_output_tokens": 512, "p95_output_tokens": 2048,
-               "peak_rps": 20, "peak_inflight": 160,
-               "ttft_ms_p95": 800, "decode_ms_p95": 40},
-  "deployment": {"hardware_profile_id": "hgx_b200",
-                 "max_gpus_per_replica": 8, "spare_replicas": 1}
-}' | python3 -m json.tool | head -60
-```
+- KV bytes/token (MHA/GQA) = 2 x layers x kv_heads x head_dim x KV element
+  bytes, over the FULL retained input plus generated context. Prefix hit rate
+  gives zero physical memory-sharing credit and only reduces prefill compute.
+- input p95 + output p95 is a conservative tail envelope, not the p95 of total
+  length; hard context limits apply for admission.
+- Per-device memory fit is validated (weights sharded by TP; KV sharded or
+  replicated). Runtime, CUDA graphs, activations and reserve are separate terms.
+- Candidates failing their own optimistic TTFT/decode bound are rejected with
+  the failing SLO named; a passing bound never proves p95 SLO compliance.
+- Serving replicas respect both request-rate and concurrent demand; the
+  operating factor applies once; spares are added separately and excluded from
+  serving capacity; fleet = GPUs/replica x (serving + spare).
+- Evidence (`Estimated` / `Benchmark calibrated`) is independent of
+  feasibility (`Feasible` / `Infeasible` / `Unsupported`). Unsupported
+  architectures (MLA, MoE) never receive recommendations.
 
 See `docs/baseline-failures.md` for the sizing-engine regressions this rewrite
 fixes, and `docs/benchmark-collection.md` for turning an Estimated result into
 a Benchmark-calibrated one.
+
+## Known limitations
+
+- MLA/MoE recommendations, multimodal/hybrid architectures, KV offload,
+  session-retention simulation, validated disaggregated serving, automated GPU
+  provisioning, and commercial pricing are deferred.
+- Rubin (Vera Rubin NVL72) and H200 NVL are comparison-only until availability,
+  topology and compute values are verified; GB300 compute values are unsourced.
+- The `vera_rubin_nvl72` / `h200_nvl` profiles have `compute_tflops: null`;
+  latency bounds are UNVERIFIED (not failed) for those profiles.
+- All latency and throughput numbers without an imported benchmark are
+  optimistic ceiling estimates (linear bandwidth scaling, no queueing).

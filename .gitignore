@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 dist/
 .pytest_cache/
+e2e/node_modules/
+e2e/.browsers/
+e2e/package*.json

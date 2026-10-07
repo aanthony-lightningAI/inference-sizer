@@ -383,9 +383,37 @@ def size(req: SizeRequest, benchmark: dict | None = None) -> SizingResult:
 
     device_mem_bytes, mem_source = device_memory_bytes(profile, req.deployment.observed_memory_gb)
 
+    # A compatible, non-synthetic benchmark restricts candidates to the MEASURED
+    # parallelism; measured capacity never extrapolates across TP degrees.
+    bench_profile = None
+    if benchmark is not None:
+        from .benchmarks import compatibility_report, parse_profile
+
+        try:
+            bp = parse_profile(benchmark)
+        except Exception as e:
+            result.warnings.append(f"Benchmark profile rejected: {e}")
+            bp = None
+        if bp is not None and not bp.synthetic and (
+            req.benchmark_profile_id is None or bp.profile_id == req.benchmark_profile_id
+        ):
+            mismatches = compatibility_report(bp, req)
+            if not mismatches:
+                bench_profile = bp
+            else:
+                result.warnings.append(
+                    "Benchmark profile is not compatible with this request; status remains "
+                    "Estimated. Material mismatches: " + "; ".join(mismatches)
+                )
+                result.benchmark = {"profile_id": bp.profile_id, "mismatches": mismatches}
+
+    if bench_profile is not None:
+        tp_list = [bench_profile.gpus_per_replica]
+    else:
+        tp_list = _tp_candidates(req.deployment)
     batch_cap = inflight if inflight > 0 else 256
     candidates: list[CandidateRecord] = []
-    for tp in _tp_candidates(req.deployment):
+    for tp in tp_list:
         if req.deployment.allocation_size_gpus and tp > req.deployment.allocation_size_gpus:
             continue  # provider never allocates fewer GPUs than the block size
         candidates.append(_evaluate_candidate(

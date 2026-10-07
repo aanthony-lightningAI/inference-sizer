@@ -191,11 +191,14 @@ def apply_calibration(req: SizeRequest, result: SizingResult, benchmark: dict | 
         )
         return
     mismatches = compatibility_report(profile, req)
+    if result.benchmark and result.benchmark.get("profile_id") == profile.profile_id:
+        mismatches = result.benchmark.get("mismatches", mismatches)
     if mismatches:
-        result.warnings.append(
-            "Benchmark profile is not compatible with this request; status remains Estimated. "
-            "Material mismatches: " + "; ".join(mismatches)
-        )
+        if not result.warnings:
+            result.warnings.append(
+                "Benchmark profile is not compatible with this request; status remains Estimated. "
+                "Material mismatches: " + "; ".join(mismatches)
+            )
         result.benchmark = {"profile_id": profile.profile_id, "mismatches": mismatches}
         return
     if result.feasibility != Feasibility.FEASIBLE or result.selected is None:

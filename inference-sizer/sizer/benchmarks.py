@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .schemas import Evidence, SizeRequest, SizingResult
+from .schemas import Evidence, Feasibility, SizeRequest, SizingResult
 
 BENCHMARK_SCHEMA_VERSION = 1
 

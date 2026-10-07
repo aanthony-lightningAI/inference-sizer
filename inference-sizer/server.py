@@ -10,10 +10,10 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
 
 from sizer.engine import size
 from sizer.hardware import load_catalog
@@ -32,8 +32,8 @@ if _origins:
     )
 
 
-@app.exception_handler(ValidationError)
-async def validation_handler(_req, exc: ValidationError):
+@app.exception_handler(RequestValidationError)
+async def validation_handler(_req, exc: RequestValidationError):
     """Field-specific errors instead of a 500."""
     errors = []
     for e in exc.errors():

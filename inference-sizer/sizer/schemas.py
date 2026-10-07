@@ -243,6 +243,9 @@ class ModelPreset(BaseModel):
     hidden_size: int
     total_params: float
     max_context_tokens: int | None = None
+    unsupported_reason: str | None = Field(
+        None, description="Set when the preset is outside v1 supported recommendations"
+    )
     source_ref: SourceRef | None = None
 
 

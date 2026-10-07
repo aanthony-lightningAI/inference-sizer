@@ -327,6 +327,7 @@ def _traffic(req: SizeRequest) -> tuple[float, int, list[str], dict]:
 
 
 def size(req: SizeRequest, benchmark: dict | None = None) -> SizingResult:
+    benchmark = benchmark if benchmark is not None else req.benchmark
     profile = get_profile(req.deployment.hardware_profile_id)
     result = SizingResult(
         customer=req.customer, tier=req.tier, request=req, hardware_profile=profile,

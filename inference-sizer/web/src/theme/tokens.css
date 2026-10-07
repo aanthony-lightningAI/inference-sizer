@@ -1,0 +1,50 @@
+/*
+ * PROVISIONAL Lightning AI design tokens — PENDING OFFICIAL BRAND APPROVAL.
+ *
+ * Colors, the wordmark SVG, favicons and the Inter font in ./assets/ were
+ * scraped from the public lightning.ai website on 2026-10-07 for this
+ * internal prototype. They are NOT the approved brand kit and must not be
+ * represented as official Lightning branding.
+ *
+ * Everything brand-related lives in this directory: swap this file and the
+ * assets when the official kit arrives and the whole app updates.
+ */
+
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/inter-latin-variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Brand colors (from lightning.ai, provisional) */
+  --brand-purple: #792ee5;
+  --brand-purple-deep: #5b21b6;
+  --brand-blue: #1baee9;
+  --brand-blue-soft: #428ff4;
+  --brand-gold: #fcbe2e;
+  --brand-lav: #9b8ffa;
+
+  /* Neutrals */
+  --bg: #f7f6fb;
+  --ink: #1c1c1c;
+  --muted: #65676b;
+  --line: #e4e1ef;
+  --card: #ffffff;
+
+  /* Status colors (contrast-checked on --card) */
+  --ok: #0e7a4d;
+  --ok-bg: #e7f6ee;
+  --warn: #8a5a00;
+  --warn-bg: #fdf3dd;
+  --err: #b3261e;
+  --err-bg: #fdeceb;
+  --info: #1d5fbf;
+  --info-bg: #e9f1fd;
+  --focus: #03b2cb;
+
+  --radius: 10px;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}

@@ -161,6 +161,9 @@ class SizeRequest(NonFiniteAwareModel):
     benchmark_profile_id: str | None = Field(
         None, description="Optional benchmark profile to calibrate this request"
     )
+    # Optional inline benchmark_profile/v1 payload for API transport. The engine
+    # falls back to this when no separate benchmark argument is passed.
+    benchmark: dict | None = None
 
     @field_validator("schema_version")
     @classmethod

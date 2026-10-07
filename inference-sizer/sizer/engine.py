@@ -1,249 +1,456 @@
-"""Inference GPU sizing engine.
+"""Pure sizing logic for dense MHA/GQA decoder models.
 
-Memory fit sets GPUs per replica. Peak goodput at the latency SLO sets replica count.
-Disaggregated prefill/decode is a mode flag, not a separate model.
+Shared by the API and the CLI. All quantities are bytes internally.
+
+Key properties (each backed by a regression test):
+- Prefix hit rate gives ZERO physical memory-sharing credit; retained-context
+  memory is monotonic in context length. Prefix credit applies to prefill
+  compute only.
+- input p95 + output p95 is a conservative tail envelope, not the p95 of total
+  length. Hard max-context limits apply for admission.
+- Per-device memory is validated; pooled HBM is not treated as interchangeable.
+- A candidate failing its own optimistic latency bound is rejected and the
+  failing SLO is named. A passing bound never proves p95 SLO compliance.
+- Serving replicas respect both request-rate and concurrent-request demand.
+  Spares are added separately and excluded from serving capacity.
 """
 
 from __future__ import annotations
 
 from math import ceil
-from typing import Literal
 
-from pydantic import BaseModel, Field
+from .hardware import device_memory_bytes, get_profile
+from .schemas import (
+    FORMAT_BYTES,
+    CandidateRecord,
+    DeploymentSpec,
+    Evidence,
+    Feasibility,
+    MemoryComponents,
+    ModelSpec,
+    SizeRequest,
+    SizingResult,
+    WorkloadSpec,
+)
 
-
-class SizeRequest(BaseModel):
-    customer: str = "Customer"
-    tier: str = "Interactive chat"
-    params_b: float = Field(70, description="Total parameters, billions")
-    active_b: float = Field(70, description="Active parameters, billions. Same as total for dense models.")
-    layers: int = 80
-    kv_heads: int = 8
-    head_dim: int = 128
-    attn: Literal["gqa", "mla"] = "gqa"
-    mla_dim: int = Field(576, description="MLA cached elements per layer: kv_lora_rank + qk_rope_head_dim")
-    weight_bytes: float = Field(1.0, description="Bytes per weight: 2 BF16, 1 FP8, 0.5 FP4")
-    kv_bytes: float = Field(1.0, description="Bytes per KV element")
-    rps: float = 20
-    inflight: int = 160
-    in_mean: int = 2048
-    in_p95: int = 8192
-    out_mean: int = 512
-    out_p95: int = 2048
-    prefix_hit: float = Field(0.4, ge=0, le=1)
-    ttft_ms: float = 800
-    itl_ms: float = 40
-    util: float = Field(0.65, gt=0, le=1)
-    margin_replicas: int = 1
-    gpu_name: str = "B200 192GB"
-    hbm_gb: float = 192
-    bw_tb_s: float = 8
-    flops_tflops: float = 4500
-    bw_eff: float = Field(0.65, gt=0, le=1)
-    flops_eff: float = Field(0.45, gt=0, le=1)
-    max_gpus_per_replica: int = 8
-    overhead_gb: float = 2
-    disagg: bool = False
-    link_gb_s: float = 50
-    link_eff: float = Field(0.5, gt=0, le=1)
+GIB = 1024**3
 
 
-PRESETS = [
-    {"name": "Llama 3.1 8B", "params_b": 8, "active_b": 8, "layers": 32, "kv_heads": 8, "head_dim": 128, "attn": "gqa"},
-    {"name": "Llama 3.1 70B", "params_b": 70, "active_b": 70, "layers": 80, "kv_heads": 8, "head_dim": 128, "attn": "gqa"},
-    {"name": "Llama 3.1 405B", "params_b": 405, "active_b": 405, "layers": 126, "kv_heads": 8, "head_dim": 128, "attn": "gqa"},
-    {"name": "Qwen2.5 32B", "params_b": 32, "active_b": 32, "layers": 64, "kv_heads": 8, "head_dim": 128, "attn": "gqa"},
-    {"name": "DeepSeek-V3 class (MLA)", "params_b": 671, "active_b": 37, "layers": 61, "kv_heads": 128, "head_dim": 128, "attn": "mla", "mla_dim": 576},
-]
-
-GPUS = [
-    {"name": "H100 SXM 80GB", "hbm_gb": 80, "bw_tb_s": 3.35, "flops": {2: 989, 1: 1979, 0.5: 1979}},
-    {"name": "H200 141GB", "hbm_gb": 141, "bw_tb_s": 4.8, "flops": {2: 989, 1: 1979, 0.5: 1979}},
-    {"name": "B200 192GB", "hbm_gb": 192, "bw_tb_s": 8.0, "flops": {2: 2250, 1: 4500, 0.5: 9000}},
-    {"name": "B300 288GB", "hbm_gb": 288, "bw_tb_s": 8.0, "flops": {2: 2500, 1: 5000, 0.5: 10000}},
-]
+def kv_bytes_per_token(model: ModelSpec) -> int:
+    """KV bytes per token per sequence for the supported MHA/GQA path:
+    2 (K and V) x layers x kv_heads x head_dim x kv element bytes."""
+    if model.attn not in ("mha", "gqa"):
+        raise ValueError("KV formula applies to MHA/GQA only")
+    return int(2 * model.layers * model.kv_heads * model.head_dim * FORMAT_BYTES[model.kv_dtype])
 
 
-def _gib(n: float) -> float:
-    return n / (1024 ** 3)
+def context_lengths(workload: WorkloadSpec) -> tuple[int, int, str]:
+    """Returns (tail envelope, mean context, label).
+
+    Tail envelope = p95_input + p95_output, capped by the hard context limit.
+    """
+    tail_raw = workload.p95_input_tokens + workload.p95_output_tokens
+    label = (
+        "conservative tail envelope (input p95 + output p95); not the p95 of total length"
+    )
+    return tail_raw, workload.mean_input_tokens + workload.mean_output_tokens, label
 
 
-def _powers(max_gpus: int) -> list[int]:
-    out = []
-    n = 1
-    while n <= max_gpus:
-        out.append(n)
-        n *= 2
-    if out[-1] != max_gpus:
-        out.append(max_gpus)
-    return out
+def kv_sharding(kv_heads: int, tp: int) -> tuple[str, int]:
+    """Returns (mode, kv_heads_per_device). kv heads below TP are replicated."""
+    if kv_heads % tp == 0:
+        return "sharded", kv_heads // tp
+    if kv_heads < tp:
+        return "replicated", kv_heads  # every device holds every KV head
+    return "invalid", 0
 
 
-def kv_bytes_per_token(req: SizeRequest) -> int:
-    if req.attn == "mla":
-        elements = req.mla_dim
-    else:
-        elements = 2 * req.kv_heads * req.head_dim
-    return int(elements * req.layers * req.kv_bytes)
+def _kv_bytes_per_token_per_device(model: ModelSpec, tp: int) -> int:
+    mode, heads_per_dev = kv_sharding(model.kv_heads, tp)
+    if mode == "invalid":
+        raise ValueError(
+            f"kv_heads={model.kv_heads} is not divisible by TP={tp} and not replicable (< TP)"
+        )
+    return int(2 * model.layers * heads_per_dev * model.head_dim * FORMAT_BYTES[model.kv_dtype])
 
 
-def effective_tokens(req: SizeRequest, p95: bool) -> float:
-    inp = req.in_p95 if p95 else req.in_mean
-    out = req.out_p95 if p95 else req.out_mean
-    return inp * (1 - req.prefix_hit) + out
+def _weights_bytes_per_device(model: ModelSpec, tp: int) -> float:
+    return model.total_params * model.weight_bytes_each() / tp
 
 
-def _decode_fit(req: SizeRequest, gpus: int, batch: int, ctx: float) -> dict:
-    weight = req.params_b * 1e9 * req.weight_bytes
-    usable = req.hbm_gb * (1024 ** 3) * gpus - req.overhead_gb * (1024 ** 3) * gpus - weight
-    kv_budget = max(0.0, usable * 0.88)
-    kv_need = kv_bytes_per_token(req) * ctx * batch
-    mem_ok = kv_need <= kv_budget and usable > 0
-    agg_bw = gpus * req.bw_tb_s * 1e12 * req.bw_eff
-    step = (weight + kv_need) / agg_bw if agg_bw else float("inf")
-    goodput = batch / step if step else 0
-    return {"mem_ok": mem_ok, "step": step, "goodput": goodput, "kv_need": kv_need, "kv_budget": kv_budget}
+def _candidate_memory(
+    model: ModelSpec, dep: DeploymentSpec, profile, device_mem_bytes: int, mem_source: str,
+    tp: int, kv_per_tok_per_dev: int, batch: int, ctx_tail: int,
+) -> MemoryComponents:
+    weights = _weights_bytes_per_device(model, tp)
+    runtime = dep.runtime_overhead_gb * 1e9
+    graphs = dep.cuda_graphs_gb * 1e9
+    activations = dep.activations_workspace_gb * 1e9
+    reserve = dep.reserve_fraction * device_mem_bytes
+    kv_p95 = kv_per_tok_per_dev * ctx_tail * batch
+    total = weights + runtime + graphs + activations + reserve + kv_p95
+    return MemoryComponents(
+        weights_bytes=weights,
+        kv_p95_bytes_per_replica=kv_per_tok_per_dev * ctx_tail * batch * tp,  # replica total
+        runtime_overhead_bytes=runtime,
+        cuda_graphs_bytes=graphs,
+        activations_workspace_bytes=activations,
+        reserve_bytes=reserve,
+        total_bytes_per_replica=total * tp,
+        total_bytes_per_device=total,
+        device_memory_bytes=device_mem_bytes,
+        device_memory_source=mem_source,  # type: ignore[arg-type]
+    )
 
 
-def _max_batch(req: SizeRequest, gpus: int, ctx: float) -> int:
-    lo, hi, fit = 1, max(req.inflight, 1), 0
-    itl = req.itl_ms / 1000
+def _decode_itl_ms(
+    model: ModelSpec, dep: DeploymentSpec, profile, tp: int,
+    kv_per_tok_per_dev: int, batch: int, ctx_mean: int,
+) -> float:
+    """Optimistic decode-step bound: one step reads all weights plus live KV."""
+    agg_bw = tp * profile.hbm_bandwidth_tb_s * 1e12 * dep.bw_eff
+    read_bytes = _weights_bytes_per_device(model, tp) + kv_per_tok_per_dev * ctx_mean * batch
+    return read_bytes / agg_bw * 1000.0
+
+
+def _prefill_ms(
+    model: ModelSpec, dep: DeploymentSpec, profile, tp: int, input_tokens: int,
+) -> float:
+    """Optimistic prefill bound on the given (conservative) input token count."""
+    flops = 2 * (model.active_params or model.total_params) * input_tokens
+    peak = tp * (profile.compute_tflops or {}).get("bf16", 0) * 1e12 * dep.flops_eff
+    return flops / peak * 1000.0 if peak else float("inf")
+
+
+def _prefill_input_tok_s(model: ModelSpec, dep: DeploymentSpec, profile, tp: int) -> float:
+    peak = tp * (profile.compute_tflops or {}).get("bf16", 0) * 1e12 * dep.flops_eff
+    flops_per_tok = 2 * (model.active_params or model.total_params)
+    return peak / flops_per_tok if flops_per_tok else float("inf")
+
+
+def _max_batch(
+    model: ModelSpec, dep: DeploymentSpec, profile, device_mem_bytes: int,
+    tp: int, kv_per_tok_per_dev: int, ctx_tail: int, ctx_mean: int,
+    batch_cap: int, decode_ms_slo: float,
+) -> tuple[int, float, str | None]:
+    """Largest batch fitting per-device memory at the tail envelope AND the ITL
+    bound. Returns (batch, itl_ms, limit) where limit names the binding factor."""
+    fixed = (
+        _weights_bytes_per_device(model, tp)
+        + dep.runtime_overhead_gb * 1e9
+        + dep.cuda_graphs_gb * 1e9
+        + dep.activations_workspace_gb * 1e9
+        + dep.reserve_fraction * device_mem_bytes
+    )
+    budget = device_mem_bytes - fixed
+    if budget <= 0:
+        return 0, float("inf"), "memory"
+    # Binary search on batch: both memory (at tail context) and ITL (at mean
+    # context) increase monotonically with batch.
+    lo, hi, best, itl_best, limit_best = 1, batch_cap, 0, float("inf"), "memory"
     while lo <= hi:
         mid = (lo + hi) // 2
-        got = _decode_fit(req, gpus, mid, ctx)
-        if got["mem_ok"] and got["step"] <= itl:
-            fit = mid
+        mem_ok = kv_per_tok_per_dev * ctx_tail * mid <= budget
+        itl = _decode_itl_ms(model, dep, profile, tp, kv_per_tok_per_dev, mid, ctx_mean)
+        if mem_ok and itl <= decode_ms_slo:
+            best, itl_best, limit_best = mid, itl, "memory"
             lo = mid + 1
+        elif not mem_ok:
+            hi = mid - 1
+            limit_best = "memory"
         else:
             hi = mid - 1
-    return fit
+            limit_best = "itl"
+    return best, itl_best, limit_best
 
 
-def _weights_fit(req: SizeRequest, gpus: int) -> bool:
-    weight = req.params_b * 1e9 * req.weight_bytes
-    cap = req.hbm_gb * (1024 ** 3) * gpus * 0.92
-    overhead = req.overhead_gb * (1024 ** 3) * gpus
-    return weight + overhead <= cap
+def _evaluate_candidate(
+    req: SizeRequest, tp: int, device_mem_bytes: int, mem_source: str,
+    ctx_tail: int, ctx_mean: int, rps: float, inflight: int, batch_cap: int,
+) -> CandidateRecord:
+    model, dep, workload, profile = (
+        req.model, req.deployment, req.workload,
+        get_profile(req.deployment.hardware_profile_id),
+    )
+    reasons: list[str] = []
+    limit: str | None = None
 
+    # ---- divisibility and KV placement
+    heads = model.attention_heads
+    if heads is not None and heads % tp != 0:
+        reasons.append(f"attention_heads={heads} not divisible by TP={tp}")
+    try:
+        mode, heads_per_dev = kv_sharding(model.kv_heads, tp)
+    except ValueError as e:
+        reasons.append(str(e))
+        return CandidateRecord(gpus_per_replica=tp, feasible=False, rejection_reasons=reasons,
+                               kv_per_token_bytes=kv_bytes_per_token(model))
+    if heads is None:
+        # Divisibility cannot be verified without num_attention_heads; surfaced
+        # as an assumption instead of silently passing.
+        pass
+    kv_per_tok_per_dev = _kv_bytes_per_token_per_device(model, tp)
 
-def size_colocated(req: SizeRequest) -> dict:
-    ctx_mem = effective_tokens(req, True)
-    ctx_thru = effective_tokens(req, False)
-    peak_out = req.rps * req.out_mean
-    best = None
-    notes = []
-    for gpus in _powers(req.max_gpus_per_replica):
-        if not _weights_fit(req, gpus):
-            continue
-        batch = _max_batch(req, gpus, ctx_mem)
-        if not batch:
-            continue
-        fit = _decode_fit(req, gpus, batch, ctx_thru)
-        prefill_flops = 2 * req.active_b * 1e9 * req.in_mean * (1 - req.prefix_hit)
-        prefill_time = prefill_flops / (gpus * req.flops_tflops * 1e12 * req.flops_eff)
-        replicas = ceil(peak_out / (fit["goodput"] * req.util)) if fit["goodput"] else 10**9
-        rec = {
-            "gpus_per_replica": gpus,
-            "concurrency": batch,
-            "goodput_tok_s": fit["goodput"],
-            "prefill_ms": prefill_time * 1000,
-            "ttft_ok": prefill_time <= req.ttft_ms / 1000,
-            "replicas": replicas,
-            "fleet_gpus": gpus * (replicas + req.margin_replicas),
-            "kv_per_seq_gib": _gib(kv_bytes_per_token(req) * ctx_mem),
-        }
-        if best is None or rec["fleet_gpus"] < best["fleet_gpus"] or (
-            rec["fleet_gpus"] == best["fleet_gpus"] and rec["ttft_ok"] and not best["ttft_ok"]
-        ):
-            best = rec
-    if best is None:
-        notes.append(
-            "No replica up to max GPUs fits weights plus p95 KV inside the inter-token SLO. "
-            "Raise max GPUs per replica, cut p95 context, or lower KV dtype."
+    # ---- memory fit (fixed terms + weights, before any KV)
+    fixed = (
+        _weights_bytes_per_device(model, tp)
+        + dep.runtime_overhead_gb * 1e9
+        + dep.cuda_graphs_gb * 1e9
+        + dep.activations_workspace_gb * 1e9
+        + dep.reserve_fraction * device_mem_bytes
+    )
+    if fixed > device_mem_bytes:
+        reasons.append(
+            f"weights+runtime+graphs+activations+reserve ({fixed / 1e9:.1f} GB/device) "
+            f"exceed device memory ({device_mem_bytes / 1e9:.1f} GB)"
         )
-    return {"replica": best, "notes": notes, "peak_output_tok_s": peak_out, "ctx_p95": ctx_mem, "ctx_mean": ctx_thru}
+        return CandidateRecord(
+            gpus_per_replica=tp, feasible=False, rejection_reasons=reasons,
+            kv_per_token_bytes=kv_bytes_per_token(model), kv_sharding=mode,
+            kv_heads_per_device=heads_per_dev, limit="memory",
+        )
+
+    # ---- batch inside ITL bound and memory
+    batch, itl_ms, batch_limit = _max_batch(
+        model, dep, profile, device_mem_bytes, tp, kv_per_tok_per_dev,
+        ctx_tail, ctx_mean, batch_cap, workload.decode_ms_p95,
+    )
+    if batch == 0:
+        reasons.append("no concurrent batch fits memory and the decode-latency bound")
+        return CandidateRecord(
+            gpus_per_replica=tp, feasible=False, rejection_reasons=reasons,
+            kv_per_token_bytes=kv_bytes_per_token(model), kv_sharding=mode,
+            kv_heads_per_device=heads_per_dev, limit=batch_limit or "memory",
+        )
+
+    memory = _candidate_memory(
+        model, dep, profile, device_mem_bytes, mem_source, tp,
+        kv_per_tok_per_dev, batch, ctx_tail,
+    )
+
+    # ---- optimistic prefill (TTFT) bound on the conservative input tail
+    uncached_tail = int(workload.p95_input_tokens * (1 - workload.prefix_hit_rate))
+    if profile.compute_tflops is None:
+        # Compute values unsourced for this profile: no prefill bound exists.
+        # Latency is UNVERIFIED, not failed; memory fit still evaluates.
+        prefill_ms = None
+        ttft_ok = True
+        ttft_unknown = True
+    else:
+        prefill_ms = _prefill_ms(model, dep, profile, tp, uncached_tail)
+        ttft_ok = prefill_ms <= workload.ttft_ms_p95
+        ttft_unknown = False
+
+    # ---- capacity under the operating factor, applied once
+    util = dep.operating_factor
+    mean_uncached = int(workload.mean_input_tokens * (1 - workload.prefix_hit_rate))
+    prefill_mean_ms = _prefill_ms(model, dep, profile, tp, mean_uncached) if not ttft_unknown else 0.0
+    response_s = (prefill_mean_ms + workload.mean_output_tokens * itl_ms) / 1000.0
+    littles_rps = batch / response_s if response_s > 0 else float("inf")
+    prefill_tok_s = _prefill_input_tok_s(model, dep, profile, tp) if not ttft_unknown else float("inf")
+    prefill_rps = prefill_tok_s / mean_uncached if mean_uncached > 0 else float("inf")
+    rps_cap = min(littles_rps, prefill_rps)
+
+    serving_from_rps = ceil(rps / (rps_cap * util)) if rps > 0 else 0
+    serving_from_conc = ceil(inflight / (batch * util)) if inflight > 0 else 0
+    serving = max(serving_from_rps, serving_from_conc)
+
+    feasible = ttft_ok and serving < 10**6
+    limit = None
+    if ttft_unknown:
+        reasons.append(
+            "compute values unsourced for this profile: TTFT bound unverified (memory fit only)"
+        )
+    elif not ttft_ok:
+        reasons.append(
+            f"fails the optimistic TTFT bound: prefill estimate {prefill_ms:.0f} ms "
+            f"> ttft_ms_p95 {workload.ttft_ms_p95:.0f} ms (optimistic bound, not a measured p95)"
+        )
+        limit = "ttft"
+    if rps > 0 and serving_from_rps >= 10**6:
+        reasons.append("request-rate requirement cannot be met by this candidate")
+        limit = limit or "prefill_throughput"
+    if feasible:
+        if serving_from_conc > serving_from_rps:
+            limit = "concurrency"
+        elif serving_from_rps > 0:
+            limit = "prefill_throughput" if prefill_rps <= littles_rps else "request_rate"
+        else:
+            limit = "memory" if batch_limit == "memory" else "itl"
+
+    return CandidateRecord(
+        gpus_per_replica=tp, feasible=feasible, rejection_reasons=reasons,
+        memory=memory, kv_per_token_bytes=kv_bytes_per_token(model),
+        kv_sharding=mode, kv_heads_per_device=heads_per_dev,
+        max_concurrency=batch, prefill_bound_ms=prefill_ms, itl_bound_ms=itl_ms,
+        rps_capacity=rps_cap, serving_replicas=serving if feasible else None,
+        limit=limit,
+    )
 
 
-def size_disagg(req: SizeRequest) -> dict:
-    ctx_mem = effective_tokens(req, True)
-    peak_out = req.rps * req.out_mean
-    peak_in = req.rps * req.in_mean * (1 - req.prefix_hit)
-    notes = []
-    decode = None
-    for gpus in _powers(req.max_gpus_per_replica):
-        if not _weights_fit(req, gpus):
-            continue
-        batch = _max_batch(req, gpus, ctx_mem)
-        if not batch:
-            continue
-        fit = _decode_fit(req, gpus, batch, effective_tokens(req, False))
-        replicas = ceil(peak_out / (fit["goodput"] * req.util)) if fit["goodput"] else 10**9
-        rec = {
-            "gpus_per_replica": gpus,
-            "concurrency": batch,
-            "goodput_tok_s": fit["goodput"],
-            "replicas": replicas,
-            "fleet_gpus": gpus * (replicas + req.margin_replicas),
+def _tp_candidates(dep: DeploymentSpec) -> list[int]:
+    out = set()
+    n = 1
+    while n <= dep.max_gpus_per_replica:
+        out.add(n)
+        n *= 2
+    for topo in (8, 72):
+        if topo <= dep.max_gpus_per_replica:
+            out.add(topo)
+    return sorted(out)
+
+
+def _traffic(req: SizeRequest) -> tuple[float, int, list[str], dict]:
+    """Resolve request rate and concurrent demand; surface inconsistencies."""
+    w = req.workload
+    warnings: list[str] = []
+    derived: dict = {}
+    rps = w.peak_rps
+    if w.derived_rps() is not None:
+        derived_rps = w.derived_rps()
+        derived = {
+            "active_users": w.active_users,
+            "requests_per_active_per_hour": w.requests_per_active_per_hour,
+            "calls_per_task": w.calls_per_task or 1.0,
+            "derived_rps": derived_rps,
         }
-        if decode is None or rec["fleet_gpus"] < decode["fleet_gpus"]:
-            decode = rec
-    prefill = None
-    for gpus in _powers(req.max_gpus_per_replica):
-        if not _weights_fit(req, gpus):
-            continue
-        flops_per_token = 2 * req.active_b * 1e9
-        tok_s = (gpus * req.flops_tflops * 1e12 * req.flops_eff) / flops_per_token
-        replicas = ceil(peak_in / (tok_s * req.util)) if tok_s else 10**9
-        one = (flops_per_token * req.in_p95 * (1 - req.prefix_hit)) / (gpus * req.flops_tflops * 1e12 * req.flops_eff)
-        kv_move = (kv_bytes_per_token(req) * ctx_mem) / (req.link_gb_s * 1e9 * req.link_eff)
-        ttft = one + kv_move
-        rec = {
-            "gpus_per_replica": gpus,
-            "goodput_input_tok_s": tok_s,
-            "replicas": replicas,
-            "prefill_ms": one * 1000,
-            "kv_transfer_ms": kv_move * 1000,
-            "ttft_ms": ttft * 1000,
-            "ttft_ok": ttft <= req.ttft_ms / 1000,
-            "fleet_gpus": gpus * (replicas + req.margin_replicas),
-        }
-        if prefill is None or rec["fleet_gpus"] < prefill["fleet_gpus"]:
-            prefill = rec
-    if decode is None:
-        notes.append("Decode pool does not fit at the ITL SLO within max GPUs per replica.")
-    if prefill and not prefill["ttft_ok"]:
-        notes.append("Prefill plus KV transfer exceeds the TTFT SLO. Add prefill GPUs or a faster KV link.")
-    fleet = None
-    if decode and prefill:
-        fleet = decode["fleet_gpus"] + prefill["fleet_gpus"]
-    return {"decode": decode, "prefill": prefill, "notes": notes, "fleet_gpus": fleet, "peak_input_tok_s": peak_in}
+        if rps == 0:
+            rps = derived_rps
+            derived["used"] = "derived from active-user cadence x calls per task"
+        elif abs(derived_rps - rps) / max(derived_rps, rps) > 0.1:
+            warnings.append(
+                f"Explicit peak_rps ({rps}) differs by >10% from the rate derived from "
+                f"active-user cadence ({derived_rps:.3f}); using explicit peak_rps."
+            )
+    inflight = w.peak_inflight
+    return rps, inflight, warnings, derived
 
 
-def size(req: SizeRequest) -> dict:
-    notes = []
-    if req.attn == "gqa" and req.kv_heads >= 32 and req.params_b > 200:
-        notes.append("High KV-head count on a very large model. If this is MLA, switch attention or the cache is overstated.")
-    coloc = size_colocated(req)
-    dis = size_disagg(req) if req.disagg else None
-    fleet = dis["fleet_gpus"] if dis and dis["fleet_gpus"] is not None else (coloc["replica"]["fleet_gpus"] if coloc["replica"] else None)
-    return {
-        "customer": req.customer,
-        "tier": req.tier,
-        "gpu": req.gpu_name,
-        "mode": "disaggregated" if req.disagg else "colocated",
-        "fleet_gpus": fleet,
-        "weight_gib": _gib(req.params_b * 1e9 * req.weight_bytes),
-        "kv_bytes_per_token": kv_bytes_per_token(req),
-        "peak_output_tok_s": req.rps * req.out_mean,
-        "colocated": coloc,
-        "disaggregated": dis,
-        "notes": notes + coloc["notes"] + (dis["notes"] if dis else []),
-        "assumptions": [
-            "KV bytes/token = elements/layer × layers × KV bytes.",
-            "GQA elements = 2 × kv heads × head dim. MLA elements = latent + RoPE.",
-            "Decode step reads all weights plus live KV. ITL = that read / effective HBM bandwidth.",
-            "Prefill FLOPs ≈ 2 × active params × uncached input tokens.",
-            "Replicas = ceil(peak tok/s / (goodput × utilization)).",
-            "Ceiling model until bandwidth and compute efficiency are replaced with a measured replica.",
-        ],
-    }
+def size(req: SizeRequest, benchmark: dict | None = None) -> SizingResult:
+    profile = get_profile(req.deployment.hardware_profile_id)
+    result = SizingResult(
+        customer=req.customer, tier=req.tier, request=req, hardware_profile=profile,
+    )
+    result.assumptions = [
+        "KV bytes/token (MHA/GQA) = 2 x layers x kv_heads x head_dim x KV element bytes.",
+        "KV memory accounts for the FULL retained input plus generated context; prefix "
+        "hit rate gives no physical memory-sharing credit and only reduces prefill compute.",
+        "input p95 + output p95 is a conservative tail envelope, not the p95 of total length.",
+        "Per-device memory fit is validated (weights sharded by TP; KV sharded or replicated).",
+        "Decode ITL and prefill times are optimistic bounds (linear bandwidth scaling, no "
+        "queueing or prefill/decode contention); passing does not prove p95 SLO compliance.",
+        "Response duration for the request-rate capacity uses Little's law: batch / (prefill_mean + out_mean x ITL).",
+        f"Operating factor {req.deployment.operating_factor} applied once to capacity before rounding.",
+        "Spare replicas are added after serving replicas and excluded from serving capacity.",
+    ]
+
+    # ---- architecture support
+    if req.model.attn not in ("mha", "gqa"):
+        result.architecture_status = "unsupported"
+        result.feasibility = Feasibility.UNSUPPORTED
+        result.rejection_reasons.append(
+            f"attention={req.model.attn}: the supported v1 path covers dense MHA/GQA only"
+        )
+        result.notes.append("Unsupported architectures never receive sizing recommendations.")
+        return result
+
+    # ---- workload: zero traffic vs zero capacity
+    rps, inflight, warnings, derived = _traffic(req)
+    result.warnings.extend(warnings)
+    result.traffic_derived = derived
+    zero_traffic = rps == 0 and inflight == 0
+    if zero_traffic:
+        result.notes.append(
+            "Zero traffic declared: no serving capacity required. This is distinct from a "
+            "candidate with zero effective capacity."
+        )
+
+    tail_raw, ctx_mean, envelope_label = context_lengths(req.workload)
+    max_ctx = req.model.max_context_tokens
+    ctx_tail = tail_raw
+    if max_ctx and tail_raw > max_ctx:
+        result.warnings.append(
+            f"Tail envelope ({tail_raw} tokens) exceeds the hard context limit ({max_ctx}); "
+            f"memory uses the context limit and admission limits apply beyond it."
+        )
+        ctx_tail = max_ctx
+    result.notes.append(f"Memory context: {envelope_label}.")
+    if req.model.attention_heads is None:
+        result.notes.append(
+            "attention_heads not provided: parallelism divisibility could not be verified; "
+            "treated as an unverified assumption."
+        )
+
+    device_mem_bytes, mem_source = device_memory_bytes(profile, req.deployment.observed_memory_gb)
+
+    batch_cap = inflight if inflight > 0 else 256
+    candidates: list[CandidateRecord] = []
+    for tp in _tp_candidates(req.deployment):
+        if req.deployment.allocation_size_gpus and tp > req.deployment.allocation_size_gpus:
+            continue  # provider never allocates fewer GPUs than the block size
+        candidates.append(_evaluate_candidate(
+            req, tp, device_mem_bytes, mem_source, ctx_tail, ctx_mean,
+            rps, inflight, batch_cap,
+        ))
+    result.rejection_reasons.extend(
+        f"TP={c.gpus_per_replica}: {r}" for c in candidates if not c.feasible for r in c.rejection_reasons
+    )
+
+    feasible = [c for c in candidates if c.feasible]
+    if not feasible:
+        result.feasibility = Feasibility.INFEASIBLE
+        if not result.rejection_reasons:
+            result.rejection_reasons.append("no candidate satisfies memory and latency bounds")
+        return result
+
+    feasible.sort(key=lambda c: (c.gpus_per_replica * (c.serving_replicas or 0), c.gpus_per_replica))
+    best = feasible[0]
+
+    serving = 0 if zero_traffic else (best.serving_replicas or 0)
+    spare = req.deployment.spare_replicas
+    result.selected = best
+    result.memory_components = best.memory
+    result.serving_replicas = serving
+    result.spare_replicas = spare
+    result.fleet_gpus = best.gpus_per_replica * (serving + spare)
+    result.allocation_size_gpus = req.deployment.allocation_size_gpus
+    result.capacity_rps = (best.rps_capacity or 0) * req.deployment.operating_factor * max(serving, 0)
+    result.capacity_concurrency = (best.max_concurrency or 0) * max(serving, 0)
+    result.feasibility = Feasibility.FEASIBLE
+    result.limiting_factors = [f"TP={best.gpus_per_replica} bound by {best.limit}"]
+    if zero_traffic:
+        result.limiting_factors.append("zero declared traffic: serving replicas = 0")
+    if profile.recommendation_mode == "comparison_only":
+        result.notes.append(
+            f"{profile.name} is comparison-only in this build: it cannot produce a "
+            "supported deployment recommendation (availability/qualification unverified)."
+        )
+    if any("TTFT bound unverified" in r for r in result.rejection_reasons) or (
+        best.limit in ("memory", "itl", "concurrency") and profile.compute_tflops is None
+    ):
+        result.warnings.append(
+            "Compute values for this profile are unsourced: latency bounds are UNVERIFIED, "
+            "not passed. Memory fit is still evaluated."
+        )
+    if req.deployment.allocation_size_gpus:
+        result.notes.append(
+            f"Provider allocation size is {req.deployment.allocation_size_gpus} GPUs; this is "
+            f"distinct from the {best.gpus_per_replica} GPUs used by one replica."
+        )
+    if spare > 0:
+        result.notes.append(
+            f"Failure policy: {spare} spare replica(s) cover a nominated failure and are "
+            f"excluded from normal serving capacity."
+        )
+    if rps > 0 and inflight > 0:
+        result.notes.append(
+            "Peak simultaneous demand is an independent constraint; the larger of the "
+            "request-rate and concurrent requirements sets serving replicas."
+        )
+
+    # ---- evidence: benchmark calibration only via the adapter (Phase 4 wiring)
+    if benchmark is not None or req.benchmark_profile_id:
+        from .benchmarks import apply_calibration  # local import keeps engine standalone
+
+        apply_calibration(req, result, benchmark)
+    return result

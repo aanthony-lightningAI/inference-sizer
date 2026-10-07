@@ -1,0 +1,302 @@
+{
+  "catalog_version": 2,
+  "hardware_profiles": [
+    {
+      "id": "dgx_h100",
+      "name": "DGX H100",
+      "gpu_sku": "H100 SXM",
+      "system_family": "DGX",
+      "device_count": 8,
+      "die_count_per_device": 2,
+      "memory_per_device_gb": 80,
+      "hbm_bandwidth_tb_s": 3.35,
+      "scale_up_bandwidth_tb_s": 0.9,
+      "cpu_gpu_bandwidth_tb_s": null,
+      "topology": "NVLink 8-way (per DGX node)",
+      "allocation_sizes_gpus": null,
+      "compute_tflops": {"bf16": 989, "fp8": 1979, "fp4": 1979},
+      "compute_note": "Dense TFLOP/s by precision; sparse values excluded. Same silicon as HGX H100.",
+      "recommendation_mode": "recommended",
+      "source_refs": {
+        "h100_system": {"url": "https://docs.nvidia.com/dgx/dgxh100-user-guide/introduction-to-dgxh100.html", "access": "public"},
+        "h100_gpu": {"url": "https://www.nvidia.com/en-us/data-center/h100/", "access": "public"}
+      },
+      "status": {
+        "spec_confidence": "published",
+        "inventory": "unknown",
+        "engine_qualified": false,
+        "benchmark_evidence": "none",
+        "notes": [
+          "Drew reports (2026-10-07) current location Salt Lake City with relocation to SEA1 planned or in progress. This note does not mark SEA1 ready and does not establish allocation availability.",
+          "Allocation sizes unknown; not inferred from topology."
+        ]
+      }
+    },
+    {
+      "id": "h200_sxm_nvl8",
+      "name": "H200 SXM NVL8",
+      "gpu_sku": "H200 SXM",
+      "system_family": "HGX",
+      "device_count": 8,
+      "die_count_per_device": 2,
+      "memory_per_device_gb": 141,
+      "hbm_bandwidth_tb_s": 4.8,
+      "scale_up_bandwidth_tb_s": 0.9,
+      "topology": "NVL8 (eight-device deployment topology used in this catalog)",
+      "allocation_sizes_gpus": null,
+      "compute_tflops": {"bf16": 989, "fp8": 1979, "fp4": 1979},
+      "compute_note": "H200 SXM compute mirrors H100 SXM (same tensor cores, higher memory/bandwidth). NVL8 identifies topology only; verify the actual OEM system and fabric before qualification.",
+      "recommendation_mode": "recommended",
+      "source_refs": {
+        "h200_gpu": {"url": "https://www.nvidia.com/en-us/data-center/h200/", "access": "public"},
+        "drew_review": {"file": "Slack drew_review 2026-10-07", "access": "internal"}
+      },
+      "status": {
+        "spec_confidence": "published",
+        "inventory": "unknown",
+        "engine_qualified": false,
+        "benchmark_evidence": "none",
+        "notes": [
+          "NVL8 identifies the eight-device deployment topology; SXM identifies form factor. Do not inherit compute values from a different H200 variant and verify the deployed OEM system."
+        ]
+      }
+    },
+    {
+      "id": "h200_nvl",
+      "name": "H200 NVL",
+      "gpu_sku": "H200 NVL",
+      "system_family": "HGX",
+      "device_count": null,
+      "device_count_note": "configured_by_system: device count depends on the deployed system; not assumed.",
+      "die_count_per_device": 2,
+      "memory_per_device_gb": 141,
+      "hbm_bandwidth_tb_s": 4.8,
+      "topology": null,
+      "allocation_sizes_gpus": null,
+      "compute_tflops": null,
+      "compute_note": "Compute not carried over from H200 SXM NVL8. Kept a separate profile; qualify the deployed variant before recommending.",
+      "recommendation_mode": "comparison_only",
+      "source_refs": {
+        "h200_gpu": {"url": "https://www.nvidia.com/en-us/data-center/h200/", "access": "public"}
+      },
+      "status": {
+        "spec_confidence": "published",
+        "inventory": "unknown",
+        "engine_qualified": false,
+        "benchmark_evidence": "none",
+        "notes": [
+          "Separate from H200 SXM NVL8. Device count, topology and compute must come from the deployed system."
+        ]
+      }
+    },
+    {
+      "id": "hgx_b200",
+      "name": "HGX B200",
+      "gpu_sku": "B200",
+      "system_family": "HGX",
+      "device_count": 8,
+      "die_count_per_device": 2,
+      "memory_per_device_gb": 180,
+      "hbm_bandwidth_tb_s": 7.7,
+      "scale_up_bandwidth_tb_s": 1.8,
+      "topology": "NVLink 8-way (per HGX baseboard)",
+      "allocation_sizes_gpus": null,
+      "compute_tflops": {"bf16": 2250, "fp8": 4500, "fp4": 9000},
+      "compute_note": "Dense TFLOP/s by precision. HGX B200 is the GPU platform integrated into OEM systems; DGX is NVIDIA's own server family. Do not relabel as DGX B200.",
+      "recommendation_mode": "recommended",
+      "source_refs": {
+        "blackwell": {"url": "https://dam-cdn.nvd.orangelogic.com/AssetLink/y441155802qub41q118b2852i557jem5.pdf", "page": "8", "publication": "October 2025", "access": "public"},
+        "hgx_baseboard": {"url": "https://docs.nvidia.com/enterprise-reference-architectures/hgx-ai-factory-h100-h200-b200/latest/components.html", "access": "public"}
+      },
+      "status": {
+        "spec_confidence": "published",
+        "inventory": "unknown",
+        "engine_qualified": false,
+        "benchmark_evidence": "none",
+        "notes": [
+          "Supplied archive labeled this 'B200 192GB' with 8 TB/s; NVIDIA HGX B200 lists 180 GB per GPU and 7.7 TB/s. The published values here are anchors; use observed device memory when available."
+        ]
+      }
+    },
+    {
+      "id": "hgx_b300",
+      "name": "HGX B300",
+      "gpu_sku": "B300",
+      "system_family": "HGX",
+      "device_count": 8,
+      "die_count_per_device": 2,
+      "die_count_note": "Historical NDA slides (Nov 2024) counted 16 GPUs per NVL8 by counting two dies per package; deployable devices are eight. Dies retained separately.",
+      "memory_per_device_gb": 270,
+      "hbm_bandwidth_tb_s": 7.7,
+      "scale_up_bandwidth_tb_s": 1.8,
+      "topology": "NVLink 8-way (per HGX baseboard)",
+      "allocation_sizes_gpus": null,
+      "compute_tflops": {"bf16": 2500, "fp8": 5000, "fp4": 10000},
+      "compute_note": "Dense TFLOP/s carried from the prototype catalog as anchors (compute_note: prototype_anchor confidence on these figures).",
+      "recommendation_mode": "recommended",
+      "source_refs": {
+        "blackwell_ultra": {"url": "https://dam-cdn.nvd.orangelogic.com/AssetLink/1k0p832eq8r5ca0u5383ie5o4tp3bst1.pdf", "page": "5", "publication": "October 2025", "access": "public"}
+      },
+      "status": {
+        "spec_confidence": "published",
+        "inventory": "unknown",
+        "engine_qualified": false,
+        "benchmark_evidence": "none",
+        "notes": [
+          "Source discrepancy preserved: the DGX B300 guide reports 8 x 288 GB and its product page reports 2.1 TB total, while the Blackwell Ultra datasheet lists 270 GB per GPU for HGX B300. The datasheet anchor is used here; the discrepancy is unresolved by the sources.",
+          "Distinct from GB300 NVL72; do not conflate system profiles or device counts."
+        ]
+      }
+    },
+    {
+      "id": "gb300_nvl72",
+      "name": "GB300 NVL72",
+      "gpu_sku": "GB300",
+      "system_family": "HGX",
+      "device_count": 72,
+      "die_count_per_device": 2,
+      "die_count_note": "Historical slides counted 144 GPUs by counting dies; 72 deployable devices.",
+      "memory_per_device_gb": 279,
+      "hbm_bandwidth_tb_s": 8.0,
+      "scale_up_bandwidth_tb_s": 130.0,
+      "scale_up_note": null,
+      "topology": "NVL72 (72-device rack-scale domain)",
+      "allocation_sizes_gpus": null,
+      "compute_tflops": null,
+      "compute_note": "Per-device compute not independently sourced for GB300; left null rather than inherited from HGX B300. Memory-fit comparisons still work.",
+      "recommendation_mode": "recommended",
+      "source_refs": {
+        "blackwell_ultra": {"url": "https://dam-cdn.nvd.orangelogic.com/AssetLink/1k0p832eq8r5ca0u5383ie5o4tp3bst1.pdf", "page": "5", "publication": "October 2025", "access": "public"}
+      },
+      "status": {
+        "spec_confidence": "published",
+        "inventory": "unknown",
+        "engine_qualified": false,
+        "benchmark_evidence": "none",
+        "notes": [
+          "NVL72 counts 72 deployable devices. Allocation granularity is a provider setting and is not inferred from NVL72."
+        ]
+      }
+    },
+    {
+      "id": "vera_rubin_nvl72",
+      "name": "Vera Rubin NVL72",
+      "gpu_sku": "Rubin",
+      "system_family": "HGX",
+      "device_count": 72,
+      "memory_per_device_gb": 288,
+      "memory_qualifier": "up_to",
+      "hbm_bandwidth_tb_s": 22.0,
+      "bandwidth_qualifier": "up_to",
+      "scale_up_bandwidth_tb_s": null,
+      "topology": "NVL72",
+      "allocation_sizes_gpus": null,
+      "compute_tflops": null,
+      "compute_note": "Rubin compute values not sourced; left null. Memory and bandwidth are 'up to' qualifiers.",
+      "recommendation_mode": "comparison_only",
+      "source_refs": {
+        "rubin": {"url": "https://developer.nvidia.com/blog/inside-nvidia-rubin-gpu-architecture-powering-the-era-of-agentic-ai/", "access": "public"}
+      },
+      "status": {
+        "spec_confidence": "published",
+        "inventory": "unknown",
+        "engine_qualified": false,
+        "benchmark_evidence": "none",
+        "notes": [
+          "Lightning availability and engine qualification are unknown. Qualification needs a supported configuration and suitable evidence; unknown does not mean the product is unavailable globally.",
+          "Comparison only: cannot produce a supported deployment recommendation in v1."
+        ]
+      }
+    }
+  ],
+  "presets": [
+    {
+      "id": "llama_3_1_8b",
+      "name": "Llama 3.1 8B",
+      "architecture": "LlamaForCausalLM",
+      "attn": "gqa",
+      "layers": 32,
+      "kv_heads": 8,
+      "head_dim": 128,
+      "attention_heads": 32,
+      "hidden_size": 4096,
+      "total_params": 8030000000,
+      "max_context_tokens": 131072
+    },
+    {
+      "id": "llama_3_1_70b",
+      "name": "Llama 3.1 70B",
+      "architecture": "LlamaForCausalLM",
+      "attn": "gqa",
+      "layers": 80,
+      "kv_heads": 8,
+      "head_dim": 128,
+      "attention_heads": 64,
+      "hidden_size": 8192,
+      "total_params": 70600000000,
+      "max_context_tokens": 131072
+    },
+    {
+      "id": "llama_3_1_405b",
+      "name": "Llama 3.1 405B",
+      "architecture": "LlamaForCausalLM",
+      "attn": "gqa",
+      "layers": 126,
+      "kv_heads": 8,
+      "head_dim": 128,
+      "attention_heads": 128,
+      "hidden_size": 16384,
+      "total_params": 405000000000,
+      "max_context_tokens": 131072
+    },
+    {
+      "id": "qwen_2_5_32b",
+      "name": "Qwen2.5 32B",
+      "architecture": "Qwen2ForCausalLM",
+      "attn": "gqa",
+      "layers": 64,
+      "kv_heads": 8,
+      "head_dim": 128,
+      "attention_heads": 40,
+      "hidden_size": 5120,
+      "total_params": 32700000000,
+      "max_context_tokens": 131072
+    },
+    {
+      "id": "deepseek_v3_mla",
+      "name": "DeepSeek-V3 class (MLA)",
+      "architecture": "DeepseekV3ForCausalLM",
+      "attn": "gqa",
+      "layers": 61,
+      "kv_heads": 128,
+      "head_dim": 128,
+      "attention_heads": 128,
+      "hidden_size": 7168,
+      "total_params": 671000000000,
+      "max_context_tokens": 163840,
+      "unsupported_reason": "MLA architecture: KV formula below does not apply; recommendations unsupported in v1"
+    }
+  ],
+  "engines": [
+    {
+      "name": "vllm",
+      "versions": ["unspecified", "0.11.x"],
+      "capabilities": {
+        "mha_gqa_dense": true,
+        "mla": false,
+        "kv_offload": false,
+        "benchmark_eligible": true
+      }
+    },
+    {
+      "name": "other",
+      "versions": [],
+      "capabilities": {
+        "mha_gqa_dense": false,
+        "mla": false,
+        "kv_offload": false,
+        "benchmark_eligible": false
+      }
+    }
+  ]
+}

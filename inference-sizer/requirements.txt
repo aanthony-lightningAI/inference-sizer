@@ -1,3 +1,7 @@
-fastapi>=0.115
-uvicorn>=0.32
-pydantic>=2.6
+fastapi==0.142.4
+uvicorn==0.54.0
+pydantic==2.13.5
+
+# dev / test
+pytest==9.1.1
+httpx==0.28.1

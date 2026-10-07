@@ -14,6 +14,8 @@ across models, GPUs, engines, or workloads.
 
 from __future__ import annotations
 
+from math import ceil
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from .schemas import Evidence, Feasibility, SizeRequest, SizingResult

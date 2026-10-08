@@ -58,6 +58,12 @@ function memoryTable(result) {
         `KV @ p95 envelope (${fmt(sel.max_concurrency)} concurrent)`,
         `${bytesToGB(sel.memory.kv_p95_bytes_per_replica / sel.gpus_per_replica)} GB · ${bytesToGiB(sel.memory.kv_p95_bytes_per_replica / sel.gpus_per_replica)} GiB`,
       ],
+      ...(mc.kv_fixed_bytes_per_replica > 0
+        ? [[
+            `KV fixed / sequence (window caps, state)`,
+            `${bytesToGB(sel.memory.kv_fixed_bytes_per_replica / sel.gpus_per_replica)} GB · ${bytesToGiB(sel.memory.kv_fixed_bytes_per_replica / sel.gpus_per_replica)} GiB`,
+          ]]
+        : []),
       ["Runtime overhead", `${bytesToGB(mc.runtime_overhead_bytes)} GB`],
       ["CUDA graphs", `${bytesToGB(mc.cuda_graphs_bytes)} GB`],
       ["Activations/workspace", `${bytesToGB(mc.activations_workspace_bytes)} GB`],
@@ -68,7 +74,12 @@ function memoryTable(result) {
         `${bytesToGB(mc.device_memory_bytes)} GB · ${bytesToGiB(mc.device_memory_bytes)} GiB`,
       ],
       ["KV bytes / token / sequence", `${fmt(sel.kv_per_token_bytes)} B`],
-      ["KV placement", sel.kv_sharding === "replicated" ? "replicated (kv_heads < TP)" : `sharded (${sel.kv_heads_per_device} heads/device)`],
+      [
+        "KV placement",
+        sel.kv_sharding === "replicated"
+          ? "replicated across TP (MLA/override single stream)"
+          : `sharded (${sel.kv_heads_per_device} heads/device)`,
+      ],
     ]),
   ];
 }

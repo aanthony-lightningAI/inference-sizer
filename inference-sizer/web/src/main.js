@@ -6,7 +6,7 @@ import "./theme/tokens.css";
 import "./style.css";
 import { el, labelWrap, createSequencedFetcher, fmt } from "./dom.js";
 import { state, buildRequest, loadRequest, applyPreset, applyHardwareProfile, applyConfigJson } from "./state.js";
-import { renderResult, renderComparison } from "./render.js";
+import { renderResult, renderComparison, badge as badgeEl } from "./render.js";
 
 const fetchLatest = createSequencedFetcher();
 
@@ -127,18 +127,62 @@ function mountForm() {
   // --- Step 1: Model
   const stepModel = step(1, "Model", "Choose a preset, import a config.json, or enter architecture details.");
   presetSel = el("select", { id: "preset" });
-  catalog.presets.forEach((p) =>
-    presetSel.add(new Option(p.unsupported_reason ? `${p.name} (unsupported in v1)` : p.name, p.id))
-  );
+  {
+    const families = [];
+    for (const p of catalog.presets) {
+      const fam = p.family || "Other";
+      let grp = families.find((f) => f.name === fam);
+      if (!grp) { grp = { name: fam, presets: [] }; families.push(grp); }
+      grp.presets.push(p);
+    }
+    const empty = document.createElement("option");
+    empty.value = ""; empty.textContent = "Custom (manual entry)";
+    presetSel.append(empty);
+    for (const fam of families) {
+      const og = document.createElement("optgroup");
+      og.label = fam.name;
+      for (const p of fam.presets) {
+        const tag = p.spec_confidence === "unverified" ? " — specs unverified" : "";
+        const bad = p.unsupported_reason ? " (unsupported)" : "";
+        og.append(new Option(`${p.name}${bad}${tag}`, p.id));
+      }
+      presetSel.append(og);
+    }
+  }
   presetSel.value = m.preset_id ?? "";
   presetSel.addEventListener("change", () => {
     const p = catalog.presets.find((x) => x.id === presetSel.value);
     if (p) {
       state.configWarning = p.unsupported_reason || null;
       applyPreset(p);
+    } else {
+      state.model.source = "manual";
+      state.model.preset_id = null;
     }
     refreshAll();
   });
+  // Preset fact line: architecture class, spec confidence, preset notes.
+  const presetInfo = el("div", { class: "preset-info" });
+  function updatePresetInfo() {
+    const p = catalog.presets.find((x) => x.id === m.preset_id);
+    presetInfo.replaceChildren();
+    if (!p) return;
+    const badges = [];
+    if (m.num_experts != null) badges.push(badgeEl("MoE", "info"));
+    if (m.kv_model === "mla") badges.push(badgeEl("MLA cache", "info"));
+    if (m.attn === "hybrid") badges.push(badgeEl("Hybrid attention", "info"));
+    if (m.kv_model === "override") badges.push(badgeEl("KV override", "warn"));
+    if (p.spec_confidence === "unverified") badges.push(badgeEl("Specs unverified", "warn"));
+    presetInfo.append(...badges);
+    for (const n of p.notes ?? []) {
+      presetInfo.append(el("p", { class: "muted preset-note", text: n }));
+    }
+    if (m.kv_bytes_per_token_override != null) {
+      presetInfo.append(
+        el("p", { class: "muted preset-note", text: `KV cache: ${m.kv_bytes_per_token_override.toLocaleString()} B/token (override)` })
+      );
+    }
+  }
   const importConfigBtn = el("button", { type: "button", text: "Import config.json…" });
   importConfigBtn.addEventListener("click", () => {
     fileInput.onchange = () => {
@@ -166,10 +210,19 @@ function mountForm() {
     labelWrap(
       "Attention",
       select(
-        [["gqa", "GQA / MHA (supported)"], ["mla", "MLA (unsupported in v1)"]],
+        [["gqa", "GQA"], ["mha", "MHA"], ["mla", "MLA"], ["mqa", "MQA"], ["hybrid", "Hybrid (subset of layers)"]],
         () => m.attn,
         (v) => (m.attn = v)
       )
+    ),
+    labelWrap(
+      "KV cache path",
+      select(
+        [["mha_gqa", "MHA/GQA formula (2 x layers x heads x dim)"], ["mla", "MLA latent (rank + rope)"], ["override", "Published/derived figure"]],
+        () => m.kv_model,
+        (v) => (m.kv_model = v)
+      ),
+      "how KV bytes/token is computed"
     ),
     labelWrap("Layers", numInput(() => m.layers, (v) => (m.layers = v), { min: 1 })),
     labelWrap("KV heads", numInput(() => m.kv_heads, (v) => (m.kv_heads = v), { min: 1 })),
@@ -201,7 +254,31 @@ function mountForm() {
     ),
     labelWrap("Quantization", textInput(() => m.quantization, (v) => (m.quantization = v)))
   );
-  stepModel.append(el("div", { class: "row" }, importConfigBtn), provenanceLine, modelFields, configWarnEl);
+  const modelAdvanced = el("details", { class: "advanced" });
+  modelAdvanced.append(
+    el("summary", { text: "Advanced: MLA / MoE / hybrid-attention fields" }),
+    el(
+      "div",
+      { class: "grid" },
+      labelWrap("Active params (B, optional)", numInput(() => m.active_params_b, (v) => (m.active_params_b = v), { min: 0.0001 }), "prefill compute uses this; MoE models activate a subset"),
+      labelWrap("Routed experts", numInput(() => m.num_experts, (v) => (m.num_experts = v), { min: 1 })),
+      labelWrap("Active experts / token", numInput(() => m.active_experts, (v) => (m.active_experts = v), { min: 1 })),
+      labelWrap("KV-carrying layers", numInput(() => m.attention_kv_layers, (v) => (m.attention_kv_layers = v), { min: 1 }), "full-attention/MLA layers; blank = all layers"),
+      labelWrap("MLA kv_lora_rank", numInput(() => m.kv_lora_rank, (v) => (m.kv_lora_rank = v), { min: 1 })),
+      labelWrap("MLA qk_rope_head_dim", numInput(() => m.qk_rope_head_dim, (v) => (m.qk_rope_head_dim = v), { min: 0 })),
+      labelWrap("KV override (B/token)", numInput(() => m.kv_bytes_per_token_override, (v) => (m.kv_bytes_per_token_override = v), { min: 1 }), "requires a source below"),
+      labelWrap("KV override source", textInput(() => m.kv_override_source, (v) => (m.kv_override_source = v)), "where the figure comes from"),
+      labelWrap("Fixed KV per sequence (B)", numInput(() => m.kv_fixed_bytes_per_sequence, (v) => (m.kv_fixed_bytes_per_sequence = v), { min: 0 }), "sliding-window caps / linear-attention state")
+    )
+  );
+  stepModel.append(
+    el("div", { class: "row" }, importConfigBtn),
+    provenanceLine,
+    modelFields,
+    modelAdvanced,
+    presetInfo,
+    configWarnEl
+  );
 
   // --- Step 2: Workload
   const stepWorkload = step(2, "Workload", "Token lengths, demand and latency targets.");
@@ -347,6 +424,7 @@ function mountForm() {
   );
 
   function updateProvenance() {
+    updatePresetInfo();
     const src = { preset: "preset", config_json: "config.json", manual: "manual" }[m.source] ?? m.source;
     const fromConfig = Object.entries(state.provenance)
       .filter(([, v]) => v === "config.json")

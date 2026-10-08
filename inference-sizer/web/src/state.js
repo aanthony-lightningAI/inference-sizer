@@ -1,4 +1,4 @@
-// Application state: mirrors SizeRequest schema v1. All edits flow through
+// Application state: mirrors SizeRequest schema v2. All edits flow through
 // this module so export/import and the form stay in sync.
 
 export const state = {
@@ -9,17 +9,28 @@ export const state = {
     preset_id: "llama_3_1_70b",
     architecture: "LlamaForCausalLM",
     attn: "gqa",
+    kv_model: "mha_gqa",
     layers: 80,
+    attention_kv_layers: null,
     kv_heads: 8,
     head_dim: 128,
+    kv_lora_rank: null,
+    qk_rope_head_dim: null,
+    kv_bytes_per_token_override: null,
+    kv_override_source: null,
+    kv_fixed_bytes_per_sequence: null,
+    num_experts: null,
+    active_experts: null,
     attention_heads: 64,
     hidden_size: 8192,
     total_params_b: 70.6, // UI works in billions; converted to absolute on send
+    active_params_b: null,
     max_context_tokens: 131072,
     checkpoint_revision: "",
     weight_format: "bf16",
     kv_dtype: "bf16",
     quantization: "",
+    spec_confidence: "published",
   },
   workload: {
     mean_input_tokens: 2048,
@@ -63,13 +74,22 @@ export function buildRequest() {
     preset_id: m.source === "preset" ? m.preset_id : null,
     architecture: m.architecture || null,
     attn: m.attn,
+    kv_model: m.kv_model || "mha_gqa",
     layers: m.layers,
+    attention_kv_layers: m.attention_kv_layers ?? null,
     kv_heads: m.kv_heads,
     head_dim: m.head_dim,
+    kv_lora_rank: m.kv_lora_rank ?? null,
+    qk_rope_head_dim: m.qk_rope_head_dim ?? null,
+    kv_bytes_per_token_override: m.kv_bytes_per_token_override ?? null,
+    kv_override_source: m.kv_override_source || null,
+    kv_fixed_bytes_per_sequence: m.kv_fixed_bytes_per_sequence ?? null,
+    num_experts: m.num_experts ?? null,
+    active_experts: m.active_experts ?? null,
     attention_heads: m.attention_heads || null,
     hidden_size: m.hidden_size || null,
     total_params: Math.round(m.total_params_b * 1e9),
-    active_params: null,
+    active_params: m.active_params_b ? Math.round(m.active_params_b * 1e9) : null,
     max_context_tokens: m.max_context_tokens || null,
     checkpoint_revision: m.checkpoint_revision || null,
     weight_format: m.weight_format,
@@ -109,7 +129,7 @@ export function buildRequest() {
     reserve_fraction: d.reserve_fraction,
   };
   const req = {
-    schema_version: 1,
+    schema_version: 2,
     customer: state.customer,
     tier: state.tier,
     model,
@@ -135,12 +155,22 @@ export function loadRequest(req) {
     preset_id: m.preset_id ?? null,
     architecture: m.architecture ?? "",
     attn: m.attn,
+    kv_model: m.kv_model ?? "mha_gqa",
     layers: m.layers,
+    attention_kv_layers: m.attention_kv_layers ?? null,
     kv_heads: m.kv_heads,
     head_dim: m.head_dim,
+    kv_lora_rank: m.kv_lora_rank ?? null,
+    qk_rope_head_dim: m.qk_rope_head_dim ?? null,
+    kv_bytes_per_token_override: m.kv_bytes_per_token_override ?? null,
+    kv_override_source: m.kv_override_source ?? null,
+    kv_fixed_bytes_per_sequence: m.kv_fixed_bytes_per_sequence ?? null,
+    num_experts: m.num_experts ?? null,
+    active_experts: m.active_experts ?? null,
     attention_heads: m.attention_heads,
     hidden_size: m.hidden_size,
     total_params_b: m.total_params / 1e9,
+    active_params_b: m.active_params ? m.active_params / 1e9 : null,
     max_context_tokens: m.max_context_tokens,
     checkpoint_revision: m.checkpoint_revision ?? "",
     weight_format: m.weight_format,
@@ -164,16 +194,33 @@ export function applyPreset(preset) {
     preset_id: preset.id,
     architecture: preset.architecture,
     attn: preset.attn,
+    kv_model: preset.kv_model || "mha_gqa",
     layers: preset.layers,
+    attention_kv_layers: preset.attention_kv_layers ?? null,
     kv_heads: preset.kv_heads,
     head_dim: preset.head_dim,
+    kv_lora_rank: preset.kv_lora_rank ?? null,
+    qk_rope_head_dim: preset.qk_rope_head_dim ?? null,
+    kv_bytes_per_token_override: preset.kv_bytes_per_token_override ?? null,
+    kv_override_source: preset.kv_override_source ?? null,
+    kv_fixed_bytes_per_sequence: preset.kv_fixed_bytes_per_sequence ?? null,
+    num_experts: preset.num_experts ?? null,
+    active_experts: preset.active_experts ?? null,
     attention_heads: preset.attention_heads,
     hidden_size: preset.hidden_size,
     total_params_b: preset.total_params / 1e9,
+    active_params_b: preset.active_params ? preset.active_params / 1e9 : null,
     max_context_tokens: preset.max_context_tokens,
+    weight_format: preset.weight_format || "bf16",
+    spec_confidence: preset.spec_confidence || "published",
   };
-  for (const f of ["architecture", "attn", "layers", "kv_heads", "head_dim", "attention_heads", "hidden_size", "total_params_b"]) {
-    state.provenance[f] = "preset";
+  for (const f of [
+    "architecture", "attn", "kv_model", "layers", "attention_kv_layers", "kv_heads",
+    "head_dim", "kv_lora_rank", "qk_rope_head_dim", "kv_bytes_per_token_override",
+    "kv_fixed_bytes_per_sequence", "num_experts", "active_experts", "attention_heads",
+    "hidden_size", "total_params_b", "active_params_b", "max_context_tokens", "weight_format",
+  ]) {
+    if (state.model[f] !== null) state.provenance[f] = "preset";
   }
 }
 
@@ -184,31 +231,69 @@ export function applyHardwareProfile(profile) {
 
 export function applyConfigJson(config) {
   // HuggingFace config.json -> model fields. A config alone cannot establish
-  // total parameters; that stays a manual override.
+  // total parameters; that stays a manual override. Multimodal wrappers carry
+  // architecture fields inside text_config; search it after top-level keys.
   const m = state.model;
+  const text = config.text_config && typeof config.text_config === "object" ? config.text_config : {};
+  const pick = (...keys) => {
+    for (const k of keys) {
+      if (config[k] !== undefined && config[k] !== null) return config[k];
+      if (text[k] !== undefined && text[k] !== null) return text[k];
+    }
+    return undefined;
+  };
   const archList = config.architectures || [];
   m.source = "config_json";
   m.preset_id = null;
   m.architecture = archList[0] ?? m.architecture;
-  m.layers = config.num_hidden_layers ?? m.layers;
-  m.kv_heads = config.num_key_value_heads ?? m.attention_heads ?? m.kv_heads;
-  m.head_dim = config.head_dim ?? (config.hidden_size && config.num_attention_heads ? Math.floor(config.hidden_size / config.num_attention_heads) : m.head_dim);
-  m.attention_heads = config.num_attention_heads ?? m.attention_heads;
-  m.hidden_size = config.hidden_size ?? m.hidden_size;
-  m.max_context_tokens = config.max_position_embeddings ?? m.max_context_tokens;
+  m.layers = pick("num_hidden_layers") ?? m.layers;
+  m.kv_heads = pick("num_key_value_heads") ?? m.attention_heads ?? m.kv_heads;
+  m.head_dim = pick("head_dim") ?? (pick("hidden_size") && pick("num_attention_heads") ? Math.floor(pick("hidden_size") / pick("num_attention_heads")) : m.head_dim);
+  m.attention_heads = pick("num_attention_heads") ?? m.attention_heads;
+  m.hidden_size = pick("hidden_size") ?? m.hidden_size;
+  m.max_context_tokens = pick("max_position_embeddings", "model_max_length") ?? m.max_context_tokens;
+  m.num_experts = pick("num_experts", "n_routed_experts") ?? m.num_experts;
+  m.active_experts = pick("num_experts_per_tok") ?? m.active_experts;
   if (config.quantization_config?.quant_method) {
     m.quantization = config.quantization_config.quant_method;
     if (m.quantization.includes("fp8")) m.weight_format = "fp8";
     if (m.quantization.includes("fp4") || m.quantization.includes("nvfp4")) m.weight_format = "fp4";
   }
   m.attn = m.kv_heads < m.attention_heads ? "gqa" : "mha";
-  const MLA = ["DeepseekV2", "DeepseekV3"];
-  const MOE_KEYS = ["num_experts", "n_routed_experts"];
+  m.kv_model = "mha_gqa";
+  m.attention_kv_layers = null;
+  m.kv_lora_rank = null;
+  m.qk_rope_head_dim = null;
+  m.kv_bytes_per_token_override = null;
+  m.kv_override_source = null;
+  m.kv_fixed_bytes_per_sequence = null;
+
+  const arch = m.architecture || "";
+  const MLA_ARCHS = ["DeepseekV2", "DeepseekV3", "GlmMoeDsa", "KimiK2", "KimiK25"];
+  // Hybrid families: only some layers carry a growing KV cache; the rest hold
+  // sliding-window or constant-state caches the config does not quantify.
+  const HYBRID_ARCHS = ["DeepseekV4", "Glm5Next", "KimiK3", "Qwen3_5", "Qwen4Exp", "Inkling", "Gemma4"];
   state.configWarning = null;
-  if (MLA.some((a) => (m.architecture || "").startsWith(a))) {
-    state.configWarning = "MLA architecture: unsupported for recommendations in v1";
-  } else if (MOE_KEYS.some((k) => k in config)) {
-    state.configWarning = "MoE model: unsupported for recommendations in v1";
+  if (MLA_ARCHS.some((a) => arch.startsWith(a))) {
+    m.attn = "mla";
+    m.kv_lora_rank = pick("kv_lora_rank") ?? null;
+    m.qk_rope_head_dim = pick("qk_rope_head_dim") ?? null;
+    if (m.kv_lora_rank != null) {
+      m.kv_model = "mla";
+    } else {
+      state.configWarning = "MLA architecture: config carries no kv_lora_rank — supply the MLA fields manually (Advanced).";
+    }
+  } else if (HYBRID_ARCHS.some((a) => arch.startsWith(a))) {
+    m.attn = "hybrid";
+    const layerTypes = pick("layer_types");
+    if (Array.isArray(layerTypes)) {
+      m.attention_kv_layers = layerTypes.filter((t) => String(t).startsWith("full")).length || null;
+    }
+    state.configWarning =
+      "Hybrid architecture: only full-attention layers carry a growing KV cache. " +
+      "Set attention KV layers and the per-sequence fixed KV term (or a KV override with its source) in Advanced — see docs/model-catalog-notes.md.";
+  } else if (m.num_experts != null) {
+    state.configWarning = null; // MoE is supported since schema v2
   }
   for (const f of ["architecture", "layers", "kv_heads", "head_dim", "attention_heads", "hidden_size", "max_context_tokens"]) {
     state.provenance[f] = "config.json";

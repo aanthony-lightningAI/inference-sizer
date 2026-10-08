@@ -109,6 +109,9 @@ button:hover { background: var(--brand-purple-deep); }
 .badge-warn { background: var(--warn-bg); color: var(--warn); border-color: #eeddb0; }
 .badge-err { background: var(--err-bg); color: var(--err); border-color: #f2c4c1; }
 .badge-muted { background: #eeeef2; color: var(--muted); border-color: var(--line); }
+.preset-info { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.preset-info .badge { flex: none; }
+.preset-note { width: 100%; margin: 2px 0 0; font-size: 12.5px; }
 
 .callout { border-radius: 8px; padding: 10px 12px; font-size: 13px; margin: 8px 0; }
 .callout-err { background: var(--err-bg); color: var(--err); border: 1px solid #f2c4c1; }

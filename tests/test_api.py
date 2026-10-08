@@ -28,17 +28,20 @@ def test_health(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["ok"] is True
-    assert r.json()["schema_version"] == 1
+    assert r.json()["schema_version"] == 2
 
 
 def test_catalog(client):
     r = client.get("/api/catalog")
     assert r.status_code == 200
     c = r.json()
-    assert c["catalog_version"] == 2
+    assert c["catalog_version"] == 3
     assert len(c["hardware_profiles"]) == 7
     assert any(p["id"] == "h200_sxm_nvl8" for p in c["hardware_profiles"])
-    assert any("unsupported_reason" in p for p in c["presets"])  # MLA preset flagged
+    # Extended catalog: every preset carries family + confidence; MLA preset enabled
+    assert all("family" in p and "spec_confidence" in p for p in c["presets"])
+    dsv3 = next(p for p in c["presets"] if p["id"] == "deepseek_v3_mla")
+    assert dsv3["unsupported_reason"] is None
 
 
 def test_size_ok(client):
@@ -47,7 +50,7 @@ def test_size_ok(client):
     r = client.post("/api/size", json=_example_request())
     assert r.status_code == 200
     body = r.json()
-    assert body["schema_version"] == 1
+    assert body["schema_version"] == 2
     assert body["feasibility"] == "feasible"
 
 

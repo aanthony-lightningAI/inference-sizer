@@ -3,7 +3,8 @@
 All sizes are normalized to BYTES internally. Values are stored with their
 source-published units and converted explicitly at the boundary.
 
-schema_version: 1
+schema_version: 2 (adds MLA / MoE / hybrid-attention KV paths; v1 payloads
+are accepted on import and migrated — see migrate_request_payload)
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Bytes per element by format name. Weight storage format, compute precision and
 # KV dtype are tracked independently; nothing infers compute capability from
@@ -24,6 +25,8 @@ FORMAT_BYTES: dict[str, float] = {"bf16": 2.0, "fp16": 2.0, "fp8": 1.0, "fp4": 0
 WeightFormat = Literal["bf16", "fp16", "fp8", "fp4"]
 KVDtype = Literal["bf16", "fp16", "fp8", "fp4"]
 ComputePrecision = Literal["bf16", "fp8", "fp4"]
+AttentionKind = Literal["mha", "gqa", "mla", "mqa", "hybrid"]
+KVModel = Literal["mha_gqa", "mla", "override"]
 
 
 class NonFiniteAwareModel(BaseModel):
@@ -33,17 +36,47 @@ class NonFiniteAwareModel(BaseModel):
 
 
 class ModelSpec(NonFiniteAwareModel):
-    """Normalized dense decoder model spec (MHA or GQA only)."""
+    """Normalized model spec covering dense MHA/GQA, MLA, MoE and hybrid
+    attention via three KV-cache paths (kv_model):
+
+    - mha_gqa: 2 x kv_layers x kv_heads x head_dim x bytes
+    - mla:     kv_layers x (kv_lora_rank + qk_rope_head_dim) x bytes, replicated
+    - override: vendor/config-published per-token figure (hybrid CSA, DeltaNet,
+      IndexPool-style caches), must cite its source
+    """
 
     source: Literal["preset", "config_json", "manual"] = "manual"
     preset_id: str | None = None
     architecture: str | None = Field(
         None, description="HF architectures[0], e.g. LlamaForCausalLM"
     )
-    attn: Literal["mha", "gqa", "mla"] = "gqa"
+    attn: AttentionKind = "gqa"
+    kv_model: KVModel = "mha_gqa"
     layers: int = Field(..., gt=0, description="num_hidden_layers")
+    attention_kv_layers: int | None = Field(
+        None, gt=0,
+        description="Layers whose KV cache grows with context (full-attention / MLA "
+        "layers). None = all layers (dense attention).",
+    )
     kv_heads: int = Field(..., gt=0, description="num_key_value_heads (== heads for MHA)")
     head_dim: int = Field(..., gt=0)
+    kv_lora_rank: int | None = Field(None, gt=0, description="MLA compressed KV latent rank")
+    qk_rope_head_dim: int | None = Field(None, ge=0, description="MLA decoupled RoPE channel")
+    kv_bytes_per_token_override: int | None = Field(
+        None, gt=0,
+        description="Published/derived KV bytes per token for cache layouts the formulas "
+        "do not cover (hybrid sparse attention, DeltaNet hybrids). Requires a source.",
+    )
+    kv_override_source: str | None = Field(
+        None, description="Where the KV override figure comes from; required with override"
+    )
+    kv_fixed_bytes_per_sequence: int | None = Field(
+        None, ge=0,
+        description="Per-sequence constant KV-side memory: sliding-window caps, linear/"
+        "DeltaNet recurrent state, compressed sparse pools. Derived figures carry notes.",
+    )
+    num_experts: int | None = Field(None, ge=1, description="Routed experts (MoE)")
+    active_experts: int | None = Field(None, ge=1, description="Experts active per token")
     attention_heads: int | None = Field(None, gt=0, description="num_attention_heads")
     hidden_size: int | None = Field(None, gt=0)
     total_params: float = Field(..., gt=0, description="Total resident parameters (not billions)")
@@ -60,8 +93,26 @@ class ModelSpec(NonFiniteAwareModel):
 
     @model_validator(mode="after")
     def _check_heads(self) -> "ModelSpec":
-        if self.attention_heads is not None and self.kv_heads > self.attention_heads:
+        if self.attn in ("mha", "gqa") and (
+            self.attention_heads is not None and self.kv_heads > self.attention_heads
+        ):
             raise ValueError("kv_heads cannot exceed attention_heads for MHA/GQA")
+        return self
+
+    @model_validator(mode="after")
+    def _check_kv_model(self) -> "ModelSpec":
+        if self.kv_model == "mla":
+            if self.kv_lora_rank is None:
+                raise ValueError("kv_model=mla requires kv_lora_rank")
+            if self.qk_rope_head_dim is None:
+                object.__setattr__(self, "qk_rope_head_dim", 0)
+        if self.kv_model == "override":
+            if self.kv_bytes_per_token_override is None:
+                raise ValueError("kv_model=override requires kv_bytes_per_token_override")
+            if not self.kv_override_source:
+                raise ValueError("kv_model=override requires kv_override_source (provenance)")
+        if self.attention_kv_layers is not None and self.attention_kv_layers > self.layers:
+            raise ValueError("attention_kv_layers cannot exceed layers")
         return self
 
     @model_validator(mode="after")
@@ -75,6 +126,32 @@ class ModelSpec(NonFiniteAwareModel):
 
     def kv_bytes_each(self) -> float:
         return FORMAT_BYTES[self.kv_dtype]
+
+    def effective_kv_layers(self) -> int:
+        """Layers whose KV cache grows with context (full/MLA layers)."""
+        return self.attention_kv_layers if self.attention_kv_layers is not None else self.layers
+
+
+def migrate_request_payload(payload: dict) -> dict:
+    """Accept v1 request payloads and upgrade them to the current schema.
+
+    v1 -> v2: derive kv_model from attn (mla -> mla, else mha_gqa). Unknown
+    versions still raise in the SizeRequest validator.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    v = payload.get("schema_version", SCHEMA_VERSION)
+    if v == SCHEMA_VERSION:
+        return payload
+    if v == 1:
+        out = dict(payload)
+        model = dict(out.get("model") or {})
+        attn = model.get("attn", "gqa")
+        model.setdefault("kv_model", "mla" if attn == "mla" else "mha_gqa")
+        out["model"] = model
+        out["schema_version"] = SCHEMA_VERSION
+        return out
+    return payload  # let the validator produce the real error
 
 
 class WorkloadSpec(NonFiniteAwareModel):
@@ -234,19 +311,33 @@ class HardwareProfile(BaseModel):
 class ModelPreset(BaseModel):
     id: str
     name: str
+    family: str = Field(..., description="Family label for UI grouping, e.g. 'Qwen'")
     architecture: str
-    attn: Literal["mha", "gqa"]
+    attn: AttentionKind = "gqa"
+    kv_model: KVModel = "mha_gqa"
     layers: int
+    attention_kv_layers: int | None = None
     kv_heads: int
     head_dim: int
+    kv_lora_rank: int | None = None
+    qk_rope_head_dim: int | None = None
+    kv_bytes_per_token_override: int | None = None
+    kv_override_source: str | None = None
+    kv_fixed_bytes_per_sequence: int | None = None
+    num_experts: int | None = None
+    active_experts: int | None = None
     attention_heads: int
     hidden_size: int
     total_params: float
+    active_params: float | None = None
     max_context_tokens: int | None = None
+    weight_format: WeightFormat = "bf16"
+    spec_confidence: Literal["published", "unverified"] = "published"
     unsupported_reason: str | None = Field(
-        None, description="Set when the preset is outside v1 supported recommendations"
+        None, description="Set when the preset is outside supported recommendations"
     )
     source_ref: SourceRef | None = None
+    notes: list[str] = []
 
 
 class Catalog(BaseModel):
@@ -274,6 +365,10 @@ class MemoryComponents(BaseModel):
 
     weights_bytes: float
     kv_p95_bytes_per_replica: float
+    kv_fixed_bytes_per_replica: float = Field(
+        0.0, description="Per-sequence constant KV-side memory (sliding-window caps, "
+        "linear-attention state), x batch, per replica"
+    )
     runtime_overhead_bytes: float
     cuda_graphs_bytes: float
     activations_workspace_bytes: float
@@ -304,7 +399,7 @@ class SizingResult(BaseModel):
     """Versioned, explainable result. Evidence and feasibility are independent."""
 
     schema_version: int = SCHEMA_VERSION
-    calculator_version: str = "1.0.0"
+    calculator_version: str = "1.1.0"
     customer: str
     tier: str
     request: SizeRequest

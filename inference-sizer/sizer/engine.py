@@ -1,4 +1,5 @@
-"""Pure sizing logic for dense MHA/GQA decoder models.
+"""Pure sizing logic for dense (MHA/GQA/MQA), MLA, MoE and hybrid-attention
+decoder models, dispatched on the KV-cache path (kv_model).
 
 Shared by the API and the CLI. All quantities are bytes internally.
 
@@ -37,11 +38,28 @@ GIB = 1024**3
 
 
 def kv_bytes_per_token(model: ModelSpec) -> int:
-    """KV bytes per token per sequence for the supported MHA/GQA path:
-    2 (K and V) x layers x kv_heads x head_dim x kv element bytes."""
-    if model.attn not in ("mha", "gqa"):
-        raise ValueError("KV formula applies to MHA/GQA only")
-    return int(2 * model.layers * model.kv_heads * model.head_dim * FORMAT_BYTES[model.kv_dtype])
+    """KV bytes per token per sequence, dispatched on the KV-cache path:
+
+    - mha_gqa: 2 (K and V) x kv_layers x kv_heads x head_dim x KV element bytes
+    - mla:     kv_layers x (kv_lora_rank + qk_rope_head_dim) x KV element bytes
+      (compressed latent + RoPE channel, one copy — replicated across TP)
+    - override: vendor/config-published figure (hybrid sparse attention etc.)
+    """
+    if model.kv_model == "mha_gqa":
+        return int(
+            2 * model.effective_kv_layers() * model.kv_heads * model.head_dim
+            * FORMAT_BYTES[model.kv_dtype]
+        )
+    if model.kv_model == "mla":
+        return int(
+            model.effective_kv_layers()
+            * (model.kv_lora_rank + (model.qk_rope_head_dim or 0))
+            * FORMAT_BYTES[model.kv_dtype]
+        )
+    if model.kv_model == "override":
+        assert model.kv_bytes_per_token_override is not None  # schema-enforced
+        return int(model.kv_bytes_per_token_override)
+    raise ValueError(f"unknown kv_model {model.kv_model!r}")
 
 
 def context_lengths(workload: WorkloadSpec) -> tuple[int, int, str]:
@@ -66,12 +84,28 @@ def kv_sharding(kv_heads: int, tp: int) -> tuple[str, int]:
 
 
 def _kv_bytes_per_token_per_device(model: ModelSpec, tp: int) -> int:
+    """Per-device growing-KV bytes/token. MHA/GQA shards kv heads across TP
+    (replicating when heads < TP); MLA and override caches hold ONE compressed
+    stream that serving engines replicate across TP — never sharded here."""
+    if model.kv_model in ("mla", "override"):
+        return kv_bytes_per_token(model)
     mode, heads_per_dev = kv_sharding(model.kv_heads, tp)
     if mode == "invalid":
         raise ValueError(
             f"kv_heads={model.kv_heads} is not divisible by TP={tp} and not replicable (< TP)"
         )
-    return int(2 * model.layers * heads_per_dev * model.head_dim * FORMAT_BYTES[model.kv_dtype])
+    return int(
+        2 * model.effective_kv_layers() * heads_per_dev * model.head_dim
+        * FORMAT_BYTES[model.kv_dtype]
+    )
+
+
+def _kv_fixed_per_device(model: ModelSpec, tp: int) -> int:
+    """Per-device share of the per-sequence constant KV-side memory (sliding-
+    window caps, linear/DeltaNet recurrent state). Head-parallel state shards
+    across TP like KV heads."""
+    fixed = model.kv_fixed_bytes_per_sequence or 0
+    return int(fixed / tp)
 
 
 def _weights_bytes_per_device(model: ModelSpec, tp: int) -> float:
@@ -80,7 +114,7 @@ def _weights_bytes_per_device(model: ModelSpec, tp: int) -> float:
 
 def _candidate_memory(
     model: ModelSpec, dep: DeploymentSpec, profile, device_mem_bytes: int, mem_source: str,
-    tp: int, kv_per_tok_per_dev: int, batch: int, ctx_tail: int,
+    tp: int, kv_per_tok_per_dev: int, kv_fixed_per_dev: int, batch: int, ctx_tail: int,
 ) -> MemoryComponents:
     weights = _weights_bytes_per_device(model, tp)
     runtime = dep.runtime_overhead_gb * 1e9
@@ -88,10 +122,12 @@ def _candidate_memory(
     activations = dep.activations_workspace_gb * 1e9
     reserve = dep.reserve_fraction * device_mem_bytes
     kv_p95 = kv_per_tok_per_dev * ctx_tail * batch
-    total = weights + runtime + graphs + activations + reserve + kv_p95
+    kv_fixed = kv_fixed_per_dev * batch
+    total = weights + runtime + graphs + activations + reserve + kv_p95 + kv_fixed
     return MemoryComponents(
         weights_bytes=weights,
         kv_p95_bytes_per_replica=kv_per_tok_per_dev * ctx_tail * batch * tp,  # replica total
+        kv_fixed_bytes_per_replica=kv_fixed * tp,
         runtime_overhead_bytes=runtime,
         cuda_graphs_bytes=graphs,
         activations_workspace_bytes=activations,
@@ -105,11 +141,16 @@ def _candidate_memory(
 
 def _decode_itl_ms(
     model: ModelSpec, dep: DeploymentSpec, profile, tp: int,
-    kv_per_tok_per_dev: int, batch: int, ctx_mean: int,
+    kv_per_tok_per_dev: int, kv_fixed_per_dev: int, batch: int, ctx_mean: int,
 ) -> float:
-    """Optimistic decode-step bound: one step reads all weights plus live KV."""
+    """Optimistic decode-step bound: one step reads all weights plus live KV
+    (growing part at mean context, plus the per-sequence constant KV-side term)."""
     agg_bw = tp * profile.hbm_bandwidth_tb_s * 1e12 * dep.bw_eff
-    read_bytes = _weights_bytes_per_device(model, tp) + kv_per_tok_per_dev * ctx_mean * batch
+    read_bytes = (
+        _weights_bytes_per_device(model, tp)
+        + kv_per_tok_per_dev * ctx_mean * batch
+        + kv_fixed_per_dev * batch
+    )
     return read_bytes / agg_bw * 1000.0
 
 
@@ -130,7 +171,7 @@ def _prefill_input_tok_s(model: ModelSpec, dep: DeploymentSpec, profile, tp: int
 
 def _max_batch(
     model: ModelSpec, dep: DeploymentSpec, profile, device_mem_bytes: int,
-    tp: int, kv_per_tok_per_dev: int, ctx_tail: int, ctx_mean: int,
+    tp: int, kv_per_tok_per_dev: int, kv_fixed_per_dev: int, ctx_tail: int, ctx_mean: int,
     batch_cap: int, decode_ms_slo: float,
 ) -> tuple[int, float, str | None]:
     """Largest batch fitting per-device memory at the tail envelope AND the ITL
@@ -150,8 +191,12 @@ def _max_batch(
     lo, hi, best, itl_best, limit_best = 1, batch_cap, 0, float("inf"), "memory"
     while lo <= hi:
         mid = (lo + hi) // 2
-        mem_ok = kv_per_tok_per_dev * ctx_tail * mid <= budget
-        itl = _decode_itl_ms(model, dep, profile, tp, kv_per_tok_per_dev, mid, ctx_mean)
+        mem_ok = (
+            kv_per_tok_per_dev * ctx_tail * mid + kv_fixed_per_dev * mid <= budget
+        )
+        itl = _decode_itl_ms(
+            model, dep, profile, tp, kv_per_tok_per_dev, kv_fixed_per_dev, mid, ctx_mean
+        )
         if mem_ok and itl <= decode_ms_slo:
             best, itl_best, limit_best = mid, itl, "memory"
             lo = mid + 1
@@ -179,17 +224,22 @@ def _evaluate_candidate(
     heads = model.attention_heads
     if heads is not None and heads % tp != 0:
         reasons.append(f"attention_heads={heads} not divisible by TP={tp}")
-    try:
-        mode, heads_per_dev = kv_sharding(model.kv_heads, tp)
-    except ValueError as e:
-        reasons.append(str(e))
-        return CandidateRecord(gpus_per_replica=tp, feasible=False, rejection_reasons=reasons,
-                               kv_per_token_bytes=kv_bytes_per_token(model))
+    if model.kv_model == "mha_gqa":
+        try:
+            mode, heads_per_dev = kv_sharding(model.kv_heads, tp)
+        except ValueError as e:
+            reasons.append(str(e))
+            return CandidateRecord(gpus_per_replica=tp, feasible=False, rejection_reasons=reasons,
+                                   kv_per_token_bytes=kv_bytes_per_token(model))
+    else:
+        # MLA and override caches hold one compressed stream replicated across TP.
+        mode, heads_per_dev = "replicated", None
     if heads is None:
         # Divisibility cannot be verified without num_attention_heads; surfaced
         # as an assumption instead of silently passing.
         pass
     kv_per_tok_per_dev = _kv_bytes_per_token_per_device(model, tp)
+    kv_fixed_per_dev = _kv_fixed_per_device(model, tp)
 
     # ---- memory fit (fixed terms + weights, before any KV)
     fixed = (
@@ -212,7 +262,7 @@ def _evaluate_candidate(
 
     # ---- batch inside ITL bound and memory
     batch, itl_ms, batch_limit = _max_batch(
-        model, dep, profile, device_mem_bytes, tp, kv_per_tok_per_dev,
+        model, dep, profile, device_mem_bytes, tp, kv_per_tok_per_dev, kv_fixed_per_dev,
         ctx_tail, ctx_mean, batch_cap, workload.decode_ms_p95,
     )
     if batch == 0:
@@ -225,7 +275,7 @@ def _evaluate_candidate(
 
     memory = _candidate_memory(
         model, dep, profile, device_mem_bytes, mem_source, tp,
-        kv_per_tok_per_dev, batch, ctx_tail,
+        kv_per_tok_per_dev, kv_fixed_per_dev, batch, ctx_tail,
     )
 
     # ---- optimistic prefill (TTFT) bound on the conservative input tail
@@ -333,25 +383,50 @@ def size(req: SizeRequest, benchmark: dict | None = None) -> SizingResult:
         customer=req.customer, tier=req.tier, request=req, hardware_profile=profile,
     )
     result.assumptions = [
-        "KV bytes/token (MHA/GQA) = 2 x layers x kv_heads x head_dim x KV element bytes.",
+        "KV bytes/token by path — MHA/GQA: 2 x kv_layers x kv_heads x head_dim x KV element "
+        "bytes; MLA: kv_layers x (kv_lora_rank + qk_rope_head_dim) x KV element bytes, "
+        "replicated across TP; override: cited published/derived figure.",
         "KV memory accounts for the FULL retained input plus generated context; prefix "
         "hit rate gives no physical memory-sharing credit and only reduces prefill compute.",
         "input p95 + output p95 is a conservative tail envelope, not the p95 of total length.",
-        "Per-device memory fit is validated (weights sharded by TP; KV sharded or replicated).",
+        "Per-device memory fit is validated (weights sharded by TP; growing KV sharded or "
+        "replicated per path; per-sequence constant KV-side memory sharded across TP).",
         "Decode ITL and prefill times are optimistic bounds (linear bandwidth scaling, no "
         "queueing or prefill/decode contention); passing does not prove p95 SLO compliance.",
         "Response duration for the request-rate capacity uses Little's law: batch / (prefill_mean + out_mean x ITL).",
         f"Operating factor {req.deployment.operating_factor} applied once to capacity before rounding.",
         "Spare replicas are added after serving replicas and excluded from serving capacity.",
     ]
+    model = req.model
+    if model.kv_fixed_bytes_per_sequence:
+        result.assumptions.append(
+            f"Per-sequence constant KV-side memory of {model.kv_fixed_bytes_per_sequence:,} bytes "
+            "(sliding-window caps and/or linear-attention recurrent state) is added to every "
+            "concurrent sequence; derivation and confidence are documented in the catalog."
+        )
+    if model.kv_model == "override":
+        result.assumptions.append(
+            f"KV cache uses the cited per-token figure ({model.kv_bytes_per_token_override:,} B) "
+            f"because the cache layout ({model.attn}) is not covered by closed-form formulas; "
+            f"source: {model.kv_override_source}."
+        )
+    if model.num_experts is not None:
+        result.assumptions.append(
+            f"MoE: all {model.num_experts} routed experts are resident (weights = total "
+            f"params); prefill compute uses active params ({(model.active_params or 0) / 1e9:.1f}B); "
+            "decode ITL conservatively reads full weights each step; expert parallelism "
+            "(EP) is not modeled — experts are assumed TP-sharded."
+        )
 
-    # ---- architecture support
-    if req.model.attn not in ("mha", "gqa"):
+    # ---- architecture support: unsupported only when the KV path cannot compute.
+    # ModelSpec validation makes incomplete MLA/override specs unconstructible,
+    # so this is a defensive re-check, not the primary gate.
+    try:
+        kv_bytes_per_token(model)
+    except (ValueError, AssertionError, TypeError) as e:
         result.architecture_status = "unsupported"
         result.feasibility = Feasibility.UNSUPPORTED
-        result.rejection_reasons.append(
-            f"attention={req.model.attn}: the supported v1 path covers dense MHA/GQA only"
-        )
+        result.rejection_reasons.append(f"KV cache path unusable: {e}")
         result.notes.append("Unsupported architectures never receive sizing recommendations.")
         return result
 

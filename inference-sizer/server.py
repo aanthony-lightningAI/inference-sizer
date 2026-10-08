@@ -14,13 +14,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from sizer.engine import size
 from sizer.hardware import load_catalog
 from sizer.normalize import preset_list
-from sizer.schemas import SCHEMA_VERSION, SizeRequest
+from sizer.schemas import SCHEMA_VERSION, SizeRequest, migrate_request_payload
 
-app = FastAPI(title="Lightning AI Inference Sizer", version="1.0.0")
+app = FastAPI(title="Lightning AI Inference Sizer", version="1.1.0")
 
 _origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 if _origins:
@@ -44,7 +45,7 @@ async def validation_handler(_req, exc: RequestValidationError):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "schema_version": SCHEMA_VERSION, "calculator_version": "1.0.0"}
+    return {"ok": True, "schema_version": SCHEMA_VERSION, "calculator_version": "1.1.0"}
 
 
 @app.get("/api/catalog")
@@ -60,7 +61,12 @@ def catalog():
 
 
 @app.post("/api/size")
-def size_route(req: SizeRequest):
+def size_route(body: dict):
+    # v1 request payloads are accepted and migrated to the current schema.
+    try:
+        req = SizeRequest(**migrate_request_payload(body))
+    except ValidationError as e:
+        raise RequestValidationError(e.errors()) from e
     return size(req).model_dump(mode="json")
 
 

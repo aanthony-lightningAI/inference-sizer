@@ -49,7 +49,25 @@ def test_config_json_infers_head_dim():
     assert any(p.field == "head_dim" for p in inferred)
 
 
-def test_config_json_mla_unsupported():
+def test_config_json_mla_supported_with_fields():
+    """MLA configs with kv_lora_rank present now classify as supported MLA."""
+    cfg = {
+        "architectures": ["DeepseekV3ForCausalLM"],
+        "num_hidden_layers": 61,
+        "num_key_value_heads": 128,
+        "num_attention_heads": 128,
+        "head_dim": 192,
+        "kv_lora_rank": 512,
+        "qk_rope_head_dim": 64,
+    }
+    nm = from_config_json(cfg, overrides={"total_params": 6.71e11})
+    assert nm.unsupported_reason is None
+    assert nm.spec.kv_model == "mla" and nm.spec.attn == "mla"
+    assert nm.spec.kv_lora_rank == 512 and nm.spec.qk_rope_head_dim == 64
+
+
+def test_config_json_mla_without_rank_unsupported():
+    """MLA configs without kv_lora_rank never get force-fitted to a wrong formula."""
     cfg = {
         "architectures": ["DeepseekV3ForCausalLM"],
         "num_hidden_layers": 61,
@@ -59,12 +77,15 @@ def test_config_json_mla_unsupported():
     }
     nm = from_config_json(cfg, overrides={"total_params": 6.71e11})
     assert nm.unsupported_reason and "MLA" in nm.unsupported_reason
+    assert nm.spec.kv_model != "mla"  # invalid path never constructed
 
 
-def test_config_json_moe_unsupported():
+def test_config_json_moe_supported():
+    """MoE is extracted and supported since schema v2 (no longer deferred)."""
     cfg = llama_config(num_experts=8, num_experts_per_tok=2)
     nm = from_config_json(cfg, overrides={"total_params": 1e9})
-    assert nm.unsupported_reason and "MoE" in nm.unsupported_reason
+    assert nm.unsupported_reason is None
+    assert nm.spec.num_experts == 8 and nm.spec.active_experts == 2
 
 
 def test_config_json_missing_fields_surface():
@@ -74,9 +95,11 @@ def test_config_json_missing_fields_surface():
         from_config_json(cfg, overrides={"total_params": 1e9})
 
 
-def test_preset_mla_flagged_unsupported():
+def test_preset_mla_now_supported():
+    """deepseek_v3_mla was enabled by the MLA path in schema v2."""
     nm = from_preset("deepseek_v3_mla")
-    assert nm.unsupported_reason and "MLA" in nm.unsupported_reason
+    assert nm.unsupported_reason is None
+    assert nm.spec.kv_model == "mla" and nm.spec.attn == "mla"
 
 
 def test_quantization_config_detected():

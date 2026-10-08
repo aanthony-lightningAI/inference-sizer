@@ -1,5 +1,5 @@
 {
-  "catalog_version": 2,
+  "catalog_version": 3,
   "hardware_profiles": [
     {
       "id": "dgx_h100",
@@ -213,68 +213,660 @@
     {
       "id": "llama_3_1_8b",
       "name": "Llama 3.1 8B",
+      "family": "Llama",
       "architecture": "LlamaForCausalLM",
       "attn": "gqa",
+      "kv_model": "mha_gqa",
       "layers": 32,
       "kv_heads": 8,
       "head_dim": 128,
       "attention_heads": 32,
       "hidden_size": 4096,
       "total_params": 8030000000,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "spec_confidence": "published"
     },
     {
       "id": "llama_3_1_70b",
       "name": "Llama 3.1 70B",
+      "family": "Llama",
       "architecture": "LlamaForCausalLM",
       "attn": "gqa",
+      "kv_model": "mha_gqa",
       "layers": 80,
       "kv_heads": 8,
       "head_dim": 128,
       "attention_heads": 64,
       "hidden_size": 8192,
       "total_params": 70600000000,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "spec_confidence": "published"
     },
     {
       "id": "llama_3_1_405b",
       "name": "Llama 3.1 405B",
+      "family": "Llama",
       "architecture": "LlamaForCausalLM",
       "attn": "gqa",
+      "kv_model": "mha_gqa",
       "layers": 126,
       "kv_heads": 8,
       "head_dim": 128,
       "attention_heads": 128,
       "hidden_size": 16384,
       "total_params": 405000000000,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "spec_confidence": "published"
     },
     {
       "id": "qwen_2_5_32b",
       "name": "Qwen2.5 32B",
+      "family": "Qwen",
       "architecture": "Qwen2ForCausalLM",
       "attn": "gqa",
+      "kv_model": "mha_gqa",
       "layers": 64,
       "kv_heads": 8,
       "head_dim": 128,
       "attention_heads": 40,
       "hidden_size": 5120,
       "total_params": 32700000000,
-      "max_context_tokens": 131072
+      "max_context_tokens": 131072,
+      "spec_confidence": "published"
     },
     {
       "id": "deepseek_v3_mla",
-      "name": "DeepSeek-V3 class (MLA)",
+      "name": "DeepSeek-V3 (MLA)",
+      "family": "DeepSeek",
       "architecture": "DeepseekV3ForCausalLM",
-      "attn": "gqa",
+      "attn": "mla",
+      "kv_model": "mla",
       "layers": 61,
       "kv_heads": 128,
-      "head_dim": 128,
+      "head_dim": 192,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 64,
+      "num_experts": 256,
+      "active_experts": 8,
       "attention_heads": 128,
       "hidden_size": 7168,
       "total_params": 671000000000,
+      "active_params": 37000000000,
       "max_context_tokens": 163840,
-      "unsupported_reason": "MLA architecture: KV formula below does not apply; recommendations unsupported in v1"
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/deepseek-ai/DeepSeek-V3",
+        "publication": "HF config.json + model card (MLA kv_lora_rank 512, qk_rope_head_dim 64; MoE 256 experts / 8 active)",
+        "verified_on": "2026-10-08"
+      }
+    },
+    {
+      "id": "deepseek_v4_flash_0731",
+      "name": "DeepSeek-V4-Flash-0731",
+      "family": "DeepSeek",
+      "architecture": "DeepseekV4ForCausalLM",
+      "attn": "hybrid",
+      "kv_model": "override",
+      "layers": 43,
+      "kv_heads": 1,
+      "head_dim": 512,
+      "attention_heads": 64,
+      "hidden_size": 4096,
+      "total_params": 304000000000,
+      "active_params": 13000000000,
+      "num_experts": 256,
+      "active_experts": 6,
+      "max_context_tokens": 1048576,
+      "weight_format": "fp8",
+      "kv_bytes_per_token_override": 90112,
+      "kv_override_source": "Repo-derived cache layout: 88 KiB/token at fp16 across all 43 layers (CSA/HCA compressed sparse attention; not modeled first-principles). See docs/model-catalog-notes.md.",
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731",
+        "publication": "HF config.json + model card",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Params: 304B counted from safetensors index; the official model card states Flash = 285B total / 13B active. 304B used; discrepancy documented.",
+        "KV override figure is a third-party derivation from the repo cache layout, not a vendor-published per-token number.",
+        "Expert weights FP4 / activations FP8; DSpark speculative decoding not modeled."
+      ]
+    },
+    {
+      "id": "deepseek_v4_1_flash",
+      "name": "DeepSeek-V4.1-Flash",
+      "family": "DeepSeek",
+      "architecture": "DeepseekV4ForCausalLM (CED variant)",
+      "attn": "hybrid",
+      "kv_model": "override",
+      "layers": 40,
+      "kv_heads": 1,
+      "head_dim": 512,
+      "attention_heads": 64,
+      "hidden_size": 4096,
+      "total_params": 552000000000,
+      "active_params": 16000000000,
+      "num_experts": 384,
+      "active_experts": 6,
+      "max_context_tokens": 1048576,
+      "weight_format": "fp8",
+      "kv_bytes_per_token_override": 11264,
+      "kv_override_source": "DERIVED from vendor statement: persistent KV is roughly 1/8 of DeepSeek-V4-Flash (SWA Bounded Replay). Not an official per-token figure; see docs/model-catalog-notes.md.",
+      "spec_confidence": "unverified",
+      "source_ref": {
+        "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash",
+        "publication": "HF README + arXiv 2609.19969",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Architecture is published (config + paper); the per-token KV figure is an unverified derivation from the vendor's '1/8 of V4-Flash' statement.",
+        "552B backbone; 8B active prefill / 16B decode. Engram conditional memory (196B, sparsely accessed) is excluded from resident weights.",
+        "Causal Encoder-Decoder: decoder global KV is projected from encoder states; layer semantics differ from a plain decoder stack."
+      ]
+    },
+    {
+      "id": "glm_5",
+      "name": "GLM-5",
+      "family": "GLM",
+      "architecture": "GlmMoeDsaForCausalLM",
+      "attn": "mla",
+      "kv_model": "mla",
+      "layers": 78,
+      "kv_heads": 64,
+      "head_dim": 256,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 64,
+      "num_experts": 256,
+      "active_experts": 8,
+      "attention_heads": 64,
+      "hidden_size": 6144,
+      "total_params": 744000000000,
+      "active_params": 40000000000,
+      "max_context_tokens": 1048576,
+      "spec_confidence": "unverified",
+      "source_ref": {
+        "url": "https://github.com/zai-org/GLM-5",
+        "publication": "Official release table (744B-A40B); architecture inherited from verified GLM-5.2 config",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "GLM-5 config was not individually verified; it inherits the verified GLM-5.2 numbers (same 744B-A40B size class per the official table)."
+      ]
+    },
+    {
+      "id": "glm_5_1",
+      "name": "GLM-5.1",
+      "family": "GLM",
+      "architecture": "GlmMoeDsaForCausalLM",
+      "attn": "mla",
+      "kv_model": "mla",
+      "layers": 78,
+      "kv_heads": 64,
+      "head_dim": 256,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 64,
+      "num_experts": 256,
+      "active_experts": 8,
+      "attention_heads": 64,
+      "hidden_size": 6144,
+      "total_params": 744000000000,
+      "active_params": 40000000000,
+      "max_context_tokens": 1048576,
+      "spec_confidence": "unverified",
+      "source_ref": {
+        "url": "https://github.com/zai-org/GLM-5",
+        "publication": "Official release table (744B-A40B); architecture inherited from verified GLM-5.2 config",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "GLM-5.1 config was not individually verified; it inherits the verified GLM-5.2 numbers (same 744B-A40B size class per the official table)."
+      ]
+    },
+    {
+      "id": "glm_5_2",
+      "name": "GLM-5.2",
+      "family": "GLM",
+      "architecture": "GlmMoeDsaForCausalLM",
+      "attn": "mla",
+      "kv_model": "mla",
+      "layers": 78,
+      "kv_heads": 64,
+      "head_dim": 256,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 64,
+      "num_experts": 256,
+      "active_experts": 8,
+      "attention_heads": 64,
+      "hidden_size": 6144,
+      "total_params": 744000000000,
+      "active_params": 40000000000,
+      "max_context_tokens": 1048576,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/zai-org/GLM-5.2",
+        "publication": "HF config.json (GlmMoeDsa: kv_lora_rank 512, qk_rope_head_dim 64, 78 layers, 256 experts / 8 active, DSA index_topk 2048)",
+        "verified_on": "2026-10-08"
+      }
+    },
+    {
+      "id": "glm_5_3_flash",
+      "name": "GLM-5.3-Flash",
+      "family": "GLM",
+      "architecture": "Glm5NextForConditionalGeneration",
+      "attn": "hybrid",
+      "kv_model": "mla",
+      "layers": 45,
+      "attention_kv_layers": 11,
+      "kv_heads": 64,
+      "head_dim": 256,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 0,
+      "num_experts": 288,
+      "active_experts": 8,
+      "attention_heads": 64,
+      "hidden_size": 4096,
+      "total_params": 320000000000,
+      "active_params": 18000000000,
+      "max_context_tokens": 1048576,
+      "weight_format": "fp8",
+      "kv_fixed_bytes_per_sequence": 71303168,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/zai-org/GLM-5.3-Flash",
+        "publication": "HF config.json + z.ai blog (hybrid linear/sparse attention, 320B-A18B)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "MLA-compressed cache on the 11 full-attention layers only: 11 x (512+0) x 2 = 11,264 B/token; qk_rope_head_dim is 0 in this architecture.",
+        "Fixed term = 34 KDA linear-attention layers x 64 heads x 128 x 128 x 2B (bf16 assumed, dtype unverified) = 71,303,168 B/sequence.",
+        "Multimodal (vision tower excluded from text sizing); IndexPool compression is part of the sparse-attention layers, not the cached latent."
+      ]
+    },
+    {
+      "id": "kimi_k2_6",
+      "name": "Kimi K2.6",
+      "family": "Kimi",
+      "architecture": "KimiK25ForConditionalGeneration",
+      "attn": "mla",
+      "kv_model": "mla",
+      "layers": 61,
+      "kv_heads": 64,
+      "head_dim": 192,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 64,
+      "num_experts": 384,
+      "active_experts": 8,
+      "attention_heads": 64,
+      "hidden_size": 7168,
+      "total_params": 1000000000000,
+      "active_params": 32000000000,
+      "max_context_tokens": 262144,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/moonshotai/Kimi-K2.6",
+        "publication": "HF model card + Mooncake MLA layout (61 layers, kv_lora_rank 512, qk_rope_head_dim 64)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Multimodal via MoonViT (400M vision encoder, excluded from text sizing)."
+      ]
+    },
+    {
+      "id": "kimi_k2_7_code",
+      "name": "Kimi K2.7 Code",
+      "family": "Kimi",
+      "architecture": "KimiK25ForConditionalGeneration",
+      "attn": "mla",
+      "kv_model": "mla",
+      "layers": 61,
+      "kv_heads": 64,
+      "head_dim": 192,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 64,
+      "num_experts": 384,
+      "active_experts": 8,
+      "attention_heads": 64,
+      "hidden_size": 7168,
+      "total_params": 1000000000000,
+      "active_params": 32000000000,
+      "max_context_tokens": 262144,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/moonshotai/Kimi-K2.7-Code",
+        "publication": "HF model card (same architecture as Kimi-K2.5/K2.6 per official statement)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Deployment reuses the K2.6 architecture (official statement); multimodal vision encoder excluded."
+      ]
+    },
+    {
+      "id": "kimi_k3",
+      "name": "Kimi K3",
+      "family": "Kimi",
+      "architecture": "KimiK3ForConditionalGeneration",
+      "attn": "hybrid",
+      "kv_model": "mla",
+      "layers": 93,
+      "attention_kv_layers": 24,
+      "kv_heads": 96,
+      "head_dim": 192,
+      "kv_lora_rank": 512,
+      "qk_rope_head_dim": 64,
+      "num_experts": 896,
+      "active_experts": 16,
+      "attention_heads": 96,
+      "hidden_size": 7168,
+      "total_params": 2800000000000,
+      "active_params": 104000000000,
+      "max_context_tokens": 1048576,
+      "weight_format": "fp4",
+      "kv_fixed_bytes_per_sequence": 434110464,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/moonshotai/Kimi-K3",
+        "publication": "HF config.json + README (93 layers: 69 KDA + 24 gated MLA; 896 experts / 16 active; MLA kv_lora 512, rope 64)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "MLA cache on the 24 gated-MLA layers: 24 x (512+64) x 2 = 27,648 B/token; NoPE elsewhere.",
+        "Fixed term = 69 KDA layers x 96 heads x 128 x 128 x 4B (fp32 assumed per mamba_ssm_dtype; dtype unverified) = 434,110,464 B/sequence.",
+        "MXFP4 expert weights (quantization-aware training); routed experts ~2.72T of the 2.8T total."
+      ]
+    },
+    {
+      "id": "qwen_3_5_27b",
+      "name": "Qwen3.5 27B",
+      "family": "Qwen",
+      "architecture": "Qwen3_5ForCausalLM",
+      "attn": "hybrid",
+      "kv_model": "mha_gqa",
+      "layers": 32,
+      "attention_kv_layers": 8,
+      "kv_heads": 4,
+      "head_dim": 256,
+      "attention_heads": 16,
+      "hidden_size": 4096,
+      "total_params": 27000000000,
+      "max_context_tokens": 262144,
+      "kv_fixed_bytes_per_sequence": 50331648,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/Qwen/Qwen3.5-27B",
+        "publication": "HF config (32 layers, 8 full-attention at interval 4, 16Q/4KV head_dim 256; 24 Gated DeltaNet layers)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Only the 8 full-attention layers carry a growing KV cache: 2 x 8 x 4 x 256 x 2 = 32,768 B/token.",
+        "Fixed term = 24 linear layers x 32 value heads x 128 x 128 x 4B (fp32 assumed per mamba_ssm_dtype; dtype unverified) = 50,331,648 B/sequence."
+      ]
+    },
+    {
+      "id": "qwen_3_5_35b_a3b",
+      "name": "Qwen3.5 35B-A3B",
+      "family": "Qwen",
+      "architecture": "Qwen3_5MoeForCausalLM",
+      "attn": "hybrid",
+      "kv_model": "mha_gqa",
+      "layers": 40,
+      "attention_kv_layers": 10,
+      "kv_heads": 2,
+      "head_dim": 256,
+      "attention_heads": 16,
+      "hidden_size": 2048,
+      "total_params": 35000000000,
+      "active_params": 3000000000,
+      "num_experts": 256,
+      "active_experts": 8,
+      "max_context_tokens": 262144,
+      "kv_fixed_bytes_per_sequence": 62914560,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/Qwen/Qwen3.5-35B-A3B",
+        "publication": "HF config (40 layers, 10 full-attention 16Q/2KV head_dim 256; MoE 256 experts, 8 routed + 1 shared, moe_inter 512)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Advertised 35B total / 3B active; computed split is ~34.6B resident / ~2.86B active (docs/model-catalog-notes.md).",
+        "KV: 2 x 10 x 2 x 256 x 2 = 20,480 B/token on the 10 full-attention layers; DeltaNet fixed term = 30 layers x 32 x 128 x 128 x 4B = 62,914,560 B/seq."
+      ]
+    },
+    {
+      "id": "qwen_3_5_122b_a10b",
+      "name": "Qwen3.5 122B-A10B",
+      "family": "Qwen",
+      "architecture": "Qwen3_5MoeForCausalLM",
+      "attn": "hybrid",
+      "kv_model": "mha_gqa",
+      "layers": 48,
+      "attention_kv_layers": 12,
+      "kv_heads": 2,
+      "head_dim": 256,
+      "attention_heads": 32,
+      "hidden_size": 3072,
+      "total_params": 122000000000,
+      "active_params": 10000000000,
+      "num_experts": 256,
+      "active_experts": 8,
+      "max_context_tokens": 262144,
+      "kv_fixed_bytes_per_sequence": 150994944,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/Qwen/Qwen3.5-122B-A10B",
+        "publication": "HF model card (48 layers: 12 full-attention 32Q/2KV + 36 DeltaNet 64V/16QK; MoE 256 experts 8+1, inter 1024)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "KV: 2 x 12 x 2 x 256 x 2 = 24,576 B/token on the 12 full-attention layers.",
+        "Fixed term = 36 linear layers x 64 value heads x 128 x 128 x 4B (fp32 assumed; dtype unverified) = 150,994,944 B/sequence."
+      ]
+    },
+    {
+      "id": "qwen_3_6_27b",
+      "name": "Qwen3.6 27B",
+      "family": "Qwen",
+      "architecture": "Qwen3_5ForCausalLM",
+      "attn": "hybrid",
+      "kv_model": "mha_gqa",
+      "layers": 64,
+      "attention_kv_layers": 16,
+      "kv_heads": 4,
+      "head_dim": 256,
+      "attention_heads": 24,
+      "hidden_size": 5120,
+      "total_params": 27000000000,
+      "max_context_tokens": 262144,
+      "kv_fixed_bytes_per_sequence": 150994944,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/Qwen/Qwen3.6-27B",
+        "publication": "HF config.json + README (64 layers: 16 full-attention 24Q/4KV + 48 DeltaNet 48V/16QK; dense 27B)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "KV: 2 x 16 x 4 x 256 x 2 = 65,536 B/token on the 16 full-attention layers.",
+        "Fixed term = 48 linear layers x 48 value heads x 128 x 128 x 4B = 150,994,944 B/sequence."
+      ]
+    },
+    {
+      "id": "qwen_3_8_27b",
+      "name": "Qwen3.8 27B",
+      "family": "Qwen",
+      "architecture": "Qwen3_5ForCausalLM",
+      "attn": "hybrid",
+      "kv_model": "mha_gqa",
+      "layers": 64,
+      "attention_kv_layers": 16,
+      "kv_heads": 4,
+      "head_dim": 256,
+      "attention_heads": 24,
+      "hidden_size": 5120,
+      "total_params": 27000000000,
+      "max_context_tokens": 262144,
+      "kv_fixed_bytes_per_sequence": 150994944,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/Qwen/Qwen3.8-27B",
+        "publication": "HF README (64 layers, 16 x (3 x (Gated DeltaNet -> FFN) -> 1 x (Gated Attention -> FFN)); 24Q/4KV head_dim 256)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Same layout as Qwen3.6-27B: KV 65,536 B/token on 16 full-attention layers; DeltaNet fixed term 150,994,944 B/sequence.",
+        "262,144 native context; 1M via YaRN (deployment-dependent, not modeled)."
+      ]
+    },
+    {
+      "id": "qwen_3_8_flash_next",
+      "name": "Qwen3.8 Flash-Next",
+      "family": "Qwen",
+      "architecture": "Qwen4ExpForConditionalGeneration",
+      "attn": "hybrid",
+      "kv_model": "override",
+      "layers": 48,
+      "attention_kv_layers": 12,
+      "kv_heads": 2,
+      "head_dim": 256,
+      "attention_heads": 24,
+      "hidden_size": 2560,
+      "total_params": 125000000000,
+      "active_params": 6000000000,
+      "max_context_tokens": 262144,
+      "kv_bytes_per_token_override": 6144,
+      "kv_override_source": "Derived from config: 12 Qwen Sparse Attention layers x 2 KV heads x head_dim 256 x bf16 / indexer_compress_ratio 4 (pooled KV entries). See docs/model-catalog-notes.md.",
+      "kv_fixed_bytes_per_sequence": 113246208,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/Qwen/Qwen3.8-Flash-Next",
+        "publication": "HF config.json + README (48 layers: 12 Qwen Sparse Attention 24Q/2KV + 36 DeltaNet; MoE 125B-A6B)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Sparse-attention layers store pooled KV entries at compress ratio 4: 12 x 2 x 2 x 256 x 2 / 4 = 6,144 B/token (derivation, not a vendor-published per-token figure).",
+        "Fixed term = 36 DeltaNet layers x 48 value heads x 128 x 128 x 4B = 113,246,208 B/sequence.",
+        "125B total / 6B active excludes 51B n-gram embeddings and 4B MTP weights (deployment-dependent, noted not modeled)."
+      ]
+    },
+    {
+      "id": "inkling",
+      "name": "Inkling",
+      "family": "Inkling",
+      "architecture": "InklingForConditionalGeneration",
+      "attn": "hybrid",
+      "kv_model": "mha_gqa",
+      "layers": 66,
+      "attention_kv_layers": 11,
+      "kv_heads": 8,
+      "head_dim": 128,
+      "attention_heads": 64,
+      "hidden_size": 6144,
+      "total_params": 975000000000,
+      "active_params": 41000000000,
+      "num_experts": 256,
+      "active_experts": 6,
+      "max_context_tokens": 1048576,
+      "kv_fixed_bytes_per_sequence": 230686720,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/thinkingmachines/Inkling",
+        "publication": "HF config.json (55 sliding + 11 global layers; global 64Q/8KV, sliding 64Q/16KV, head_dim 128, window 512; 256 experts top-6 + 2 shared)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "KV grows only on the 11 global layers: 2 x 11 x 8 x 128 x 2 = 45,056 B/token.",
+        "Fixed term = 55 sliding-window layers capped at the 512-token window: 55 x 16 x 128 x 2 x 2 x 512 = 230,686,720 B/sequence.",
+        "Multimodal (image/audio encoders excluded from text sizing); relative-position bias is compute-side, not cache-side."
+      ]
+    },
+    {
+      "id": "inkling_small",
+      "name": "Inkling-Small",
+      "family": "Inkling",
+      "architecture": "InklingForConditionalGeneration",
+      "attn": "hybrid",
+      "kv_model": "mha_gqa",
+      "layers": 66,
+      "attention_kv_layers": 11,
+      "kv_heads": 8,
+      "head_dim": 128,
+      "attention_heads": 64,
+      "hidden_size": 6144,
+      "total_params": 276000000000,
+      "active_params": 12000000000,
+      "num_experts": 256,
+      "active_experts": 6,
+      "max_context_tokens": 1048576,
+      "kv_fixed_bytes_per_sequence": 230686720,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/blog/thinkingmachines-inkling",
+        "publication": "HF blog release note (Inkling-Small: 276B total / 12B active, same architecture as Inkling)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Same 66-layer hybrid layout as Inkling; identical KV terms (45,056 B/token growing + 230,686,720 B/seq sliding fixed)."
+      ]
+    },
+    {
+      "id": "gemma_4_31b",
+      "name": "Gemma 4 31B",
+      "family": "Gemma",
+      "architecture": "Gemma4ForConditionalGeneration",
+      "attn": "hybrid",
+      "kv_model": "override",
+      "layers": 60,
+      "attention_kv_layers": 10,
+      "kv_heads": 4,
+      "head_dim": 512,
+      "attention_heads": 32,
+      "hidden_size": 5376,
+      "total_params": 30700000000,
+      "max_context_tokens": 262144,
+      "kv_bytes_per_token_override": 40960,
+      "kv_override_source": "Derived from config: 10 global layers x 4 KV heads x head_dim 512 x 1 stream (attention_k_eq_v unified K/V) x bf16. See docs/model-catalog-notes.md.",
+      "kv_fixed_bytes_per_sequence": 838860800,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/google/gemma-4-31B",
+        "publication": "HF config.json + Google model card (60 layers: 50 sliding + 10 global 5:1; local 32Q/16KV head_dim 256 window 1024; global 32Q/4KV head_dim 512 unified K/V)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Global layers use unified Keys and Values (one cached stream): 10 x 4 x 512 x 1 x 2 = 40,960 B/token growing.",
+        "Fixed term = 50 sliding layers capped at the 1024-token window: 50 x 16 x 256 x 2 x 2 x 1024 = 838,860,800 B/sequence.",
+        "Multimodal (vision encoder excluded from text sizing); 256K context."
+      ]
+    },
+    {
+      "id": "gemma_4_26b_a4b",
+      "name": "Gemma 4 26B-A4B",
+      "family": "Gemma",
+      "architecture": "Gemma4ForConditionalGeneration",
+      "attn": "hybrid",
+      "kv_model": "override",
+      "layers": 30,
+      "attention_kv_layers": 5,
+      "kv_heads": 2,
+      "head_dim": 512,
+      "attention_heads": 16,
+      "hidden_size": 2816,
+      "total_params": 25200000000,
+      "active_params": 3800000000,
+      "num_experts": 128,
+      "active_experts": 8,
+      "max_context_tokens": 262144,
+      "kv_bytes_per_token_override": 10240,
+      "kv_override_source": "Derived from config: 5 global layers x 2 KV heads x head_dim 512 x 1 stream (attention_k_eq_v) x bf16. See docs/model-catalog-notes.md.",
+      "kv_fixed_bytes_per_sequence": 209715200,
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/google/gemma-4-26B-A4B",
+        "publication": "HF config.json + model card (30 layers: 25 sliding + 5 global; local 16Q/8KV head_dim 256 window 1024; global 16Q/2KV head_dim 512 unified; MoE 128 experts top-8 + 1 shared)",
+        "verified_on": "2026-10-08"
+      },
+      "notes": [
+        "Growing KV: 5 x 2 x 512 x 1 x 2 = 10,240 B/token (unified K/V on global layers).",
+        "Fixed term = 25 sliding layers capped at 1024 tokens: 25 x 8 x 256 x 2 x 2 x 1024 = 209,715,200 B/sequence."
+      ]
     }
   ],
   "engines": [
@@ -283,7 +875,8 @@
       "versions": ["unspecified", "0.11.x"],
       "capabilities": {
         "mha_gqa_dense": true,
-        "mla": false,
+        "mla": true,
+        "moe_hybrid": true,
         "kv_offload": false,
         "benchmark_eligible": true
       }
@@ -294,6 +887,7 @@
       "capabilities": {
         "mha_gqa_dense": false,
         "mla": false,
+        "moe_hybrid": false,
         "kv_offload": false,
         "benchmark_eligible": false
       }

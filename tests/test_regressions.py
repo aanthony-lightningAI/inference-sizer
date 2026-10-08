@@ -100,9 +100,16 @@ def test_invalid_inputs_field_errors():
     assert "Zero traffic" in " ".join(r["notes"])
 
 
-def test_unsupported_mla():
+def test_mla_supported_and_override_unsupported():
+    """MLA with complete fields sizes normally; the unsupported path now
+    covers KV layouts with no computable cache figure."""
     base = _base()
-    r = size(_req(model={**base["model"], "attn": "mla"})).model_dump(mode="json")
-    assert r["architecture_status"] == "unsupported"
-    assert r["feasibility"] == "unsupported"
-    assert r["selected"] is None
+    r = size(_req(model={
+        **base["model"],
+        "attn": "mla", "kv_model": "mla",
+        "kv_lora_rank": 512, "qk_rope_head_dim": 64,
+        "attention_kv_layers": base["model"]["layers"],
+    })).model_dump(mode="json")
+    assert r["architecture_status"] == "supported"
+    # MLA cache is replicated across TP, never sharded
+    assert r["selected"]["kv_sharding"] == "replicated"

@@ -170,6 +170,7 @@ def test_catalog_all_presets_have_provenance():
     for p in load_catalog().presets:
         assert p.family, f"{p.id} missing family"
         assert p.spec_confidence in ("published", "unverified")
+        assert p.source_ref, f"{p.id} missing source_ref"
         if p.spec_confidence == "unverified":
             assert p.notes or p.source_ref, f"{p.id} unverified without explanation"
         if p.kv_model == "override":
@@ -188,6 +189,29 @@ def test_catalog_new_families_present():
         "inkling", "inkling_small", "gemma_4_31b", "gemma_4_26b_a4b",
     ):
         assert pid in ids, f"missing requested preset {pid}"
+
+
+def test_dense_arch_prefixes_classified_and_sized():
+    """Qwen3/Qwen3MoE dense configs (plan gap fix) classify dense, not unknown;
+    hybrid Qwen3_5 must NOT be shadowed by the new dense prefixes."""
+    from sizer.normalize import _classify
+    assert _classify("Qwen3ForCausalLM") == "dense"
+    assert _classify("Qwen3MoeForCausalLM") == "dense"
+    assert _classify("Glm4ForCausalLM") == "dense"
+    assert _classify("Gemma3ForCausalLM") == "dense"
+    assert _classify("Qwen3_5ForCausalLM") == "hybrid"
+    assert _classify("GlmMoeDsaForCausalLM") == "mla"
+    cfg = {
+        "architectures": ["Qwen3ForCausalLM"],
+        "num_hidden_layers": 36,
+        "num_key_value_heads": 8,
+        "num_attention_heads": 32,
+        "head_dim": 128,
+        "hidden_size": 4096,
+    }
+    nm = from_config_json(cfg, overrides={"total_params": 32e9})
+    assert nm.unsupported_reason is None
+    assert nm.spec.attn == "gqa" and nm.spec.kv_model == "mha_gqa"
 
 
 def test_requested_but_nonexistent_not_fabricated():

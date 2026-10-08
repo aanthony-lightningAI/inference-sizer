@@ -27,7 +27,7 @@ never represent them as approved Lightning branding.
     latency bounds, fleet)
   - `benchmarks.py` `benchmark_profile/v1` adapter + compatibility matching
 - `web/` — Vite/JS frontend, no framework. Brand tokens centralized in `web/src/theme/`.
-- `tests/` — regression + integration checks (73).
+- `tests/` — regression + integration checks (74).
 - `docs/` — baseline failure record, benchmark collection instructions.
 - `fixtures/benchmarks/` — synthetic profiles (marked synthetic; never calibration evidence).
 - `samples/` — ready-to-run request scenarios.

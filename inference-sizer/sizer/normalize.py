@@ -30,10 +30,13 @@ class NormalizedModel(BaseModel):
 SUPPORTED_ARCH_PREFIXES = (
     "LlamaForCausalLM",
     "Qwen2ForCausalLM",
+    "Qwen3ForCausalLM",
+    "Qwen3MoeForCausalLM",
     "MistralForCausalLM",
     "Phi3ForCausalLM",
     "Gemma2ForCausalLM",
     "Gemma3ForCausalLM",
+    "Glm4ForCausalLM",
 )
 
 # MLA architectures: one compressed latent + RoPE channel per token per layer

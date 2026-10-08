@@ -224,7 +224,12 @@
       "hidden_size": 4096,
       "total_params": 8030000000,
       "max_context_tokens": 131072,
-      "spec_confidence": "published"
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/meta-llama/Llama-3.1-8B",
+        "publication": "HF config.json + model card (32 layers, GQA 8 KV heads, head_dim 128, 8B params, 128K context)",
+        "verified_on": "2026-10-07"
+      }
     },
     {
       "id": "llama_3_1_70b",
@@ -240,7 +245,12 @@
       "hidden_size": 8192,
       "total_params": 70600000000,
       "max_context_tokens": 131072,
-      "spec_confidence": "published"
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/meta-llama/Llama-3.1-70B",
+        "publication": "HF config.json + model card (80 layers, GQA 8 KV heads, head_dim 128, 70B params, 128K context)",
+        "verified_on": "2026-10-07"
+      }
     },
     {
       "id": "llama_3_1_405b",
@@ -256,7 +266,12 @@
       "hidden_size": 16384,
       "total_params": 405000000000,
       "max_context_tokens": 131072,
-      "spec_confidence": "published"
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/meta-llama/Llama-3.1-405B",
+        "publication": "HF config.json + model card (126 layers, GQA 8 KV heads, head_dim 128, 405B params, 128K context)",
+        "verified_on": "2026-10-07"
+      }
     },
     {
       "id": "qwen_2_5_32b",
@@ -272,7 +287,12 @@
       "hidden_size": 5120,
       "total_params": 32700000000,
       "max_context_tokens": 131072,
-      "spec_confidence": "published"
+      "spec_confidence": "published",
+      "source_ref": {
+        "url": "https://huggingface.co/Qwen/Qwen2.5-32B",
+        "publication": "HF config.json + model card (64 layers, GQA 8 KV heads, head_dim 128, 32B params, 128K context)",
+        "verified_on": "2026-10-07"
+      }
     },
     {
       "id": "deepseek_v3_mla",

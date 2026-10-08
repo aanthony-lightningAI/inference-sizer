@@ -93,7 +93,7 @@ per preset in [`docs/model-catalog-notes.md`](model-catalog-notes.md).
 ## 5. Verification evidence
 
 - **Unit/integration**: `PYTHONPATH=inference-sizer .venv/bin/python -m pytest
-  tests/ -q` → **73 passed** (52 carried from the original build + 21 new in
+  tests/ -q` → **74 passed** (52 carried from the original build + 22 new in
   `tests/test_v2_capabilities.py`: MLA formula/replication, override
   provenance requirements, MoE total-vs-active semantics, fixed-term math vs
   independent recomputation for every derived preset, v1→v2 migration,
@@ -138,7 +138,7 @@ per preset in [`docs/model-catalog-notes.md`](model-catalog-notes.md).
 ## 8. Reproduce
 
 ```bash
-PYTHONPATH=inference-sizer .venv/bin/python -m pytest tests/ -q   # 73 passed
+PYTHONPATH=inference-sizer .venv/bin/python -m pytest tests/ -q   # 74 passed
 docker build -t inference-sizer . && docker run -p 8000:8000 inference-sizer
 node e2e/verify.js                                                # 16/16 (server on :8000)
 ```

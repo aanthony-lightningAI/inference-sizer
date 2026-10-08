@@ -61,7 +61,7 @@ function record(name, pass, detail) {
   await page.waitForTimeout(700);
 
   // 4. VALIDATION ERROR: layers=0
-  await page.locator('.field:has-text("Layers") input').fill("0");
+  await page.locator('.field:has-text("Layers") input').first().fill("0");
   await page.waitForTimeout(700);
   const errText = await page.locator("#result").innerText();
   record(
@@ -69,7 +69,7 @@ function record(name, pass, detail) {
     errText.includes("model.layers") || errText.includes("layers"),
     `error shown: ${errText.slice(0, 120).replace(/\n/g, " ")}`
   );
-  await page.locator('.field:has-text("Layers") input').fill("80");
+  await page.locator('.field:has-text("Layers") input').first().fill("80");
   await page.waitForTimeout(700);
 
   // 5. INVALID MAX GPU = 0
@@ -96,18 +96,78 @@ function record(name, pass, detail) {
   await page.locator('.field:has-text("Customer") input').fill("Example Co");
   await page.waitForTimeout(700);
 
-  // 7. MLA UNSUPPORTED
-  await page.locator(".field:has-text(\"Attention\") select").selectOption("mla");
+  // 7. MLA without kv_lora_rank is rejected with a pointed error
+  await page.locator('.field:has-text("Attention") select').first().selectOption("mla");
   await page.waitForTimeout(700);
   const mla = await page.locator("#result").innerText();
   record(
-    "MLA unsupported",
-    mla.includes("Unsupported") && mla.includes("Architecture unsupported"),
-    "unsupported + architecture-unsupported badges shown"
+    "MLA without kv_lora_rank rejected",
+    mla.includes("kv_lora_rank"),
+    `error names the missing MLA field: ${mla.slice(0, 100).replace(/\n/g, " ")}`
   );
   await page.screenshot({ path: "e2e/shot-7-mla.png" });
-  await page.locator(".field:has-text(\"Attention\") select").selectOption("gqa");
+  await page.locator('.field:has-text("Attention") select').first().selectOption("gqa");
   await page.waitForTimeout(700);
+
+  // 7b. MLA PRESET: Kimi K2.6 (61-layer MLA, MoE) selects, badges, sizes
+  await page.locator(".field:has-text(\"Hardware profile\") select").first().selectOption("gb300_nvl72");
+  await page.waitForTimeout(900);
+  await page.locator("#preset").selectOption("kimi_k2_6");
+  await page.waitForTimeout(900);
+  const kimiInfo = await page.locator(".preset-info").innerText();
+  const kimiRes = await page.locator("#result").innerText();
+  record(
+    "MLA preset kimi_k2_6 selects + badges",
+    kimiInfo.includes("MLA cache") && kimiInfo.includes("MoE") && kimiRes.includes("Feasible"),
+    `badges="${kimiInfo.slice(0, 40)}" sized feasible on GB300`
+  );
+  await page.screenshot({ path: "e2e/shot-7b-mla-preset.png" });
+  await page.locator(".field:has-text(\"Hardware profile\") select").first().selectOption("hgx_b200");
+  await page.waitForTimeout(900);
+
+  // 7c. HYBRID PRESET: Qwen3.8-27B (DeltaNet hybrid) with fixed KV term
+  await page.locator("#preset").selectOption("qwen_3_8_27b");
+  await page.waitForTimeout(900);
+  const hybridInfo = await page.locator(".preset-info").innerText();
+  const hybridRes = await page.locator("#result").innerText();
+  record(
+    "hybrid preset qwen_3_8_27b selects + badge",
+    hybridInfo.includes("Hybrid attention") && hybridRes.includes("Feasible"),
+    `badge shown, hybrid model sized feasibly`
+  );
+  await page.screenshot({ path: "e2e/shot-7c-hybrid.png" });
+
+  // 7d. UNVERIFIED CHIP + KV OVERRIDE: DSv4 Flash 0731
+  await page.locator("#preset").selectOption("deepseek_v4_flash_0731");
+  await page.waitForTimeout(900);
+  const ovInfo = await page.locator(".preset-info").innerText();
+  const ovRes = await page.locator("#result").innerText();
+  record(
+    "override preset DSv4 Flash: KV override + MoE + sizing",
+    ovInfo.includes("KV override") && ovInfo.includes("MoE") && ovRes.includes("Feasible"),
+    `badges="${ovInfo.slice(0, 60)}" vendor KV figure applied`
+  );
+  await page.screenshot({ path: "e2e/shot-7d-override.png" });
+
+  // 7e. UNVERIFIED confidence chip: DSv4.1 Flash
+  await page.locator("#preset").selectOption("deepseek_v4_1_flash");
+  await page.waitForTimeout(900);
+  const uvInfo = await page.locator(".preset-info").innerText();
+  record(
+    "unverified preset shows confidence chip",
+    uvInfo.includes("Specs unverified"),
+    `chip text present: "${uvInfo.slice(0, 50)}"`
+  );
+  await page.screenshot({ path: "e2e/shot-7e-unverified.png" });
+
+  // 7f. FAMILY-GROUPED preset picker with optgroups
+  const optgroups = await page.locator("#preset optgroup").count();
+  record(
+    "preset picker grouped by family",
+    optgroups >= 5,
+    `${optgroups} family optgroups in the preset dropdown`
+  );
+  await page.locator("#preset").selectOption("");
 
   // 8. COMPARISON
   await page.locator('button:has-text("Add current result to comparison")').click();

@@ -7,7 +7,7 @@ export function badge(text, kind) {
   return el("span", { class: `badge badge-${kind}`, text });
 }
 
-export function statusRow(result) {
+function statusRow(result) {
   const ev = result.evidence_status === "benchmark_calibrated"
     ? badge("Benchmark calibrated", "ok")
     : badge("Estimated", "info");
@@ -133,7 +133,7 @@ export function renderResult(result) {
 
   if (!result.selected) {
     out.append(el("div", { class: "callout callout-err" }, el("strong", { text: "No feasible candidate." })));
-    (result.rejection_reasons || []).forEach((r) => out.append(el("p", { class: "reason", text: r })));
+    (result.rejection_reasons || []).forEach((r) => out.append(el("p", { class: "reason-item", text: r })));
   } else {
     out.append(...memoryTable(result));
     out.append(...fleetTable(result));

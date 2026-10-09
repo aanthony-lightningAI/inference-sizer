@@ -24,14 +24,11 @@
 :root {
   color-scheme: dark;
 
-  /* Brand colors (from lightning.ai, provisional) */
+  /* Brand colors (from lightning.ai, provisional).
+     Only --brand-purple / --brand-purple-bright are consumed; drop unused
+     hues here rather than in the swap-in brand kit. */
   --brand-purple: #792ee5;
-  --brand-purple-deep: #5b21b6;
   --brand-purple-bright: #8d4cf5;
-  --brand-blue: #1baee9;
-  --brand-blue-soft: #428ff4;
-  --brand-gold: #fcbe2e;
-  --brand-lav: #9b8ffa;
 
   /* Neutrals (dark canvas) */
   --bg: #17141f;

@@ -30,7 +30,6 @@ export const state = {
     weight_format: "bf16",
     kv_dtype: "bf16",
     quantization: "",
-    spec_confidence: "published",
   },
   workload: {
     mean_input_tokens: 2048,
@@ -212,7 +211,6 @@ export function applyPreset(preset) {
     active_params_b: preset.active_params ? preset.active_params / 1e9 : null,
     max_context_tokens: preset.max_context_tokens,
     weight_format: preset.weight_format || "bf16",
-    spec_confidence: preset.spec_confidence || "published",
   };
   for (const f of [
     "architecture", "attn", "kv_model", "layers", "attention_kv_layers", "kv_heads",
@@ -292,9 +290,8 @@ export function applyConfigJson(config) {
     state.configWarning =
       "Hybrid architecture: only full-attention layers carry a growing KV cache. " +
       "Set attention KV layers and the per-sequence fixed KV term (or a KV override with its source) in Advanced — see docs/model-catalog-notes.md.";
-  } else if (m.num_experts != null) {
-    state.configWarning = null; // MoE is supported since schema v2
   }
+  // MoE needs no warning: supported since schema v2 (fields extracted, engine handles it).
   for (const f of ["architecture", "layers", "kv_heads", "head_dim", "attention_heads", "hidden_size", "max_context_tokens"]) {
     state.provenance[f] = "config.json";
   }

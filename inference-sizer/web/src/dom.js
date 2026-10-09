@@ -7,7 +7,6 @@ export function el(tag, attrs = {}, ...children) {
     if (v === undefined || v === null) continue;
     if (k === "class") node.className = v;
     else if (k === "text") node.textContent = String(v);
-    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
     else node.setAttribute(k, String(v));
   }
   for (const c of children.flat()) {

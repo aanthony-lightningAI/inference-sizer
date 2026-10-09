@@ -70,10 +70,6 @@ function showError(msg) {
   );
 }
 
-function showEmpty() {
-  resultSlot.replaceChildren(el("p", { class: "muted", text: "Enter the model and workload to calculate." }));
-}
-
 function numInput(get, set, attrs = {}) {
   const input = el("input", { type: "number", step: "any", ...attrs });
   input.value = get() ?? "";
@@ -161,7 +157,8 @@ function mountForm() {
     }
     refreshAll();
   });
-  // Preset fact line: architecture class, spec confidence, preset notes.
+  // Preset fact line: architecture badges (MoE / MLA / hybrid / override),
+  // spec-confidence chip, preset notes.
   const presetInfo = el("div", { class: "preset-info" });
   function updatePresetInfo() {
     const p = catalog.presets.find((x) => x.id === m.preset_id);
@@ -405,7 +402,6 @@ function mountForm() {
     }
     scenarios.push({
       name: `${state.customer} · ${catalog.hardware_profiles.find((p) => p.id === dp.hardware_profile_id)?.name ?? ""}`,
-      request: buildRequest(),
       result: lastResult,
     });
     compareSlot.replaceChildren(renderComparison(scenarios));

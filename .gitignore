@@ -6,4 +6,7 @@ dist/
 .pytest_cache/
 e2e/node_modules/
 e2e/.browsers/
-e2e/package*.json
+*.zip
+.DS_Store
+*.swp
+*~

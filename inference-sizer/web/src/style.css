@@ -1,5 +1,6 @@
 /* Lightning AI Inference Sizer — theme applied via ./theme/tokens.css
- * (provisional Lightning branding, pending official approval). */
+ * (provisional Lightning branding, pending official approval).
+ * Dark theme only. */
 
 * { box-sizing: border-box; }
 
@@ -17,7 +18,7 @@ body {
   align-items: center;
   gap: 18px;
   padding: 16px 24px;
-  background: var(--card);
+  background: var(--card-deep);
   border-bottom: 1px solid var(--line);
 }
 .wordmark { height: 34px; width: auto; }
@@ -66,12 +67,13 @@ h2 { display: flex; align-items: center; gap: 10px; font-size: 15px; margin: 0 0
 input, select {
   font: inherit;
   color: var(--ink);
-  background: #fff;
+  background: var(--input-bg);
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 7px 9px;
   width: 100%;
 }
+select { color-scheme: dark; } /* native option dropdown follows the theme */
 input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
@@ -86,7 +88,7 @@ button {
   cursor: pointer;
   font-weight: 550;
 }
-button:hover { background: var(--brand-purple-deep); }
+button:hover { background: var(--brand-purple-bright); }
 .row { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
 .muted { color: var(--muted); }
 .provenance { font-size: 12px; margin: 6px 0; }
@@ -104,18 +106,18 @@ button:hover { background: var(--brand-purple-deep); }
   font-weight: 600;
   border: 1px solid transparent;
 }
-.badge-ok { background: var(--ok-bg); color: var(--ok); border-color: #bfe6cf; }
-.badge-info { background: var(--info-bg); color: var(--info); border-color: #c5d9f5; }
-.badge-warn { background: var(--warn-bg); color: var(--warn); border-color: #eeddb0; }
-.badge-err { background: var(--err-bg); color: var(--err); border-color: #f2c4c1; }
-.badge-muted { background: #eeeef2; color: var(--muted); border-color: var(--line); }
+.badge-ok { background: var(--ok-bg); color: var(--ok); border-color: var(--badge-ok-border); }
+.badge-info { background: var(--info-bg); color: var(--info); border-color: var(--badge-info-border); }
+.badge-warn { background: var(--warn-bg); color: var(--warn); border-color: var(--badge-warn-border); }
+.badge-err { background: var(--err-bg); color: var(--err); border-color: var(--badge-err-border); }
+.badge-muted { background: var(--card-deep); color: var(--muted); border-color: var(--line); }
 .preset-info { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .preset-info .badge { flex: none; }
 .preset-note { width: 100%; margin: 2px 0 0; font-size: 12.5px; }
 
 .callout { border-radius: 8px; padding: 10px 12px; font-size: 13px; margin: 8px 0; }
-.callout-err { background: var(--err-bg); color: var(--err); border: 1px solid #f2c4c1; }
-.callout-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #eeddb0; }
+.callout-err { background: var(--err-bg); color: var(--err); border: 1px solid var(--badge-err-border); }
+.callout-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--badge-warn-border); }
 
 .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 12px 0; }
 .kpi {
@@ -154,7 +156,7 @@ button:hover { background: var(--brand-purple-deep); }
 .note-item { color: var(--muted); font-size: 12.5px; margin: 5px 0; }
 .assumption-item { color: var(--muted); font-size: 12px; margin: 4px 0; }
 .customer-line { color: var(--muted); font-size: 13px; }
-.benchmark { background: var(--info-bg); border: 1px solid #c5d9f5; border-radius: var(--radius); padding: 10px 14px; }
+.benchmark { background: var(--info-bg); border: 1px solid var(--badge-info-border); border-radius: var(--radius); padding: 10px 14px; }
 .benchmark p { margin: 4px 0; font-size: 12.5px; }
 
 .visually-hidden {
@@ -173,12 +175,13 @@ button:hover { background: var(--brand-purple-deep); }
   .kpis { grid-template-columns: 1fr 1fr; }
 }
 
-/* print-friendly summary */
+/* print: paper stays light regardless of the screen theme */
 @media print {
   .app-header .header-actions, .form-col, .step, .row, #compare { display: none !important; }
-  .app-header { border-bottom: 2px solid var(--ink); }
+  .app-header { border-bottom: 2px solid #1c1c1c; }
   .layout { display: block; }
   .result-col { padding: 0; }
-  body { background: #fff; }
+  body, .result-table, .kpi { background: #fff; color: #1c1c1c; }
+  .result-table th, .result-table td { border-bottom: 1px solid #d8d8d8; }
   .result-table, .kpi, .section { break-inside: avoid; }
 }

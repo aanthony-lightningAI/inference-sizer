@@ -27,7 +27,7 @@ app.append(
     { class: "app-header" },
     el("img", {
       class: "wordmark",
-      src: new URL("./theme/assets/lightning-wordmark.svg", import.meta.url).href,
+      src: new URL("./theme/assets/lightning-wordmark-dark.svg", import.meta.url).href,
       alt: "Lightning AI",
     }),
     el(

@@ -8,6 +8,9 @@
  *
  * Everything brand-related lives in this directory: swap this file and the
  * assets when the official kit arrives and the whole app updates.
+ *
+ * DARK THEME ONLY. The palette targets a dark canvas; status colors were
+ * re-derived for contrast on --card (#241f33). Brand hues unchanged.
  */
 
 @font-face {
@@ -19,31 +22,42 @@
 }
 
 :root {
+  color-scheme: dark;
+
   /* Brand colors (from lightning.ai, provisional) */
   --brand-purple: #792ee5;
   --brand-purple-deep: #5b21b6;
+  --brand-purple-bright: #8d4cf5;
   --brand-blue: #1baee9;
   --brand-blue-soft: #428ff4;
   --brand-gold: #fcbe2e;
   --brand-lav: #9b8ffa;
 
-  /* Neutrals */
-  --bg: #f7f6fb;
-  --ink: #1c1c1c;
-  --muted: #65676b;
-  --line: #e4e1ef;
-  --card: #ffffff;
+  /* Neutrals (dark canvas) */
+  --bg: #17141f;
+  --ink: #eceaf4;
+  --muted: #a09cb2;
+  --line: #302b40;
+  --card: #241f33;
+  --card-deep: #1c1827;
+  --input-bg: #1c1827;
 
   /* Status colors (contrast-checked on --card) */
-  --ok: #0e7a4d;
-  --ok-bg: #e7f6ee;
-  --warn: #8a5a00;
-  --warn-bg: #fdf3dd;
-  --err: #b3261e;
-  --err-bg: #fdeceb;
-  --info: #1d5fbf;
-  --info-bg: #e9f1fd;
+  --ok: #4cc98a;
+  --ok-bg: #123227;
+  --warn: #e8b64c;
+  --warn-bg: #362a12;
+  --err: #f28b83;
+  --err-bg: #3a1a1e;
+  --info: #7db4f5;
+  --info-bg: #152a45;
   --focus: #03b2cb;
+
+  /* Decorative borders that previously doubled as status accents */
+  --badge-ok-border: #2c5f45;
+  --badge-info-border: #2b4f7a;
+  --badge-warn-border: #6e5518;
+  --badge-err-border: #7a3531;
 
   --radius: 10px;
   --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;

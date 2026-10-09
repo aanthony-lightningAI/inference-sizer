@@ -199,6 +199,29 @@ function record(name, pass, detail) {
     "export clicked; download started"
   );
 
+  // 12. NO STRAY NULL TEXT: sections whose content is empty must not render
+  // "null" (regression: ParentNode.append(null) stringifies). Feasible first…
+  const feasibleText = await page.locator("#result").innerText();
+  record(
+    "no stray 'null' text (feasible view)",
+    !/\bnull\b/.test(feasibleText),
+    feasibleText.includes("null") ? "FOUND literal null in results" : "results contain no literal null"
+  );
+  // …then infeasible (empty sections + callout path): 1 ms TTFT SLO makes every
+  // candidate reject its own optimistic bound.
+  await page.locator('.field:has-text("TTFT SLO p95") input').fill("1");
+  await page.locator('.field:has-text("Peak requests / sec") input').fill("999999");
+  await page.waitForTimeout(900);
+  const infeasibleText = await page.locator("#result").innerText();
+  record(
+    "no stray 'null' text (infeasible view)",
+    !/\bnull\b/.test(infeasibleText),
+    infeasibleText.includes("null") ? "FOUND literal null in results" : "results contain no literal null"
+  );
+  await page.locator('.field:has-text("TTFT SLO p95") input').fill("800");
+  await page.locator('.field:has-text("Peak requests / sec") input').fill("20");
+  await page.waitForTimeout(700);
+
   await browser.close();
   const passed = results.filter((r) => r.pass).length;
   console.log(`\n${passed}/${results.length} checks passed`);

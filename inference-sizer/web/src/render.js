@@ -139,11 +139,16 @@ export function renderResult(result) {
     out.append(...fleetTable(result));
   }
 
-  out.append(listSection("Warnings", result.warnings, "warn"));
-  out.append(listSection("Rejection reasons", result.selected ? null : null)); // rendered above when infeasible
-  if (result.selected) out.append(listSection("Candidate rejections", (result.rejection_reasons || []).slice(0, 8), "reason"));
-  out.append(listSection("Notes", result.notes, "note"));
-  out.append(listSection("Assumptions", result.assumptions, "assumption"));
+  out.append(
+    ...[
+      listSection("Warnings", result.warnings, "warn"),
+      result.selected
+        ? listSection("Candidate rejections", (result.rejection_reasons || []).slice(0, 8), "reason")
+        : null, // rejection reasons are rendered as callout lines above when infeasible
+      listSection("Notes", result.notes, "note"),
+      listSection("Assumptions", result.assumptions, "assumption"),
+    ].filter(Boolean)
+  );
 
   if (result.benchmark) {
     const b = result.benchmark;

@@ -1,0 +1,23 @@
+# Local / single-host deployment of the Lightning AI Inference Sizer.
+# API + built frontend served on one origin: http://localhost:8000
+#
+#   docker compose up -d --build
+#   curl http://localhost:8000/api/health
+#
+# CORS_ORIGINS: comma-separated allowed origins; empty = same-origin only.
+
+services:
+  inference-sizer:
+    build: .
+    image: inference-sizer:latest
+    ports:
+      - "8000:8000"
+    environment:
+      CORS_ORIGINS: ""
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2.5)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3

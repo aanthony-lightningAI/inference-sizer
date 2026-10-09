@@ -45,8 +45,27 @@ Open http://127.0.0.1:8000 — API and frontend on one origin.
 ## Run (container)
 
 ```bash
+# plain docker
 docker build -t inference-sizer . && docker run -p 8000:8000 inference-sizer
+
+# docker compose (same image, with healthcheck)
+docker compose up -d --build
 ```
+
+## Run (kubernetes)
+
+Manifests live in `k8s/` (Deployment + ClusterIP Service; frontend and API are
+served from one origin, so one container image suffices):
+
+```bash
+docker build -t inference-sizer:latest .   # push to your registry for a real cluster
+kubectl apply -f k8s/
+kubectl port-forward svc/inference-sizer 8000:80   # local access
+```
+
+The Deployment runs 2 replicas as a non-root user with readiness/liveness
+probes on `/api/health`. `CORS_ORIGINS` is empty by default (same-origin only);
+set it in the container env to allow other origins.
 
 ## CLI (same calculation path as the API)
 

@@ -1,0 +1,17 @@
+# Cluster-internal access to the sizer (frontend + API on one origin).
+# Ingress is cluster-specific; add one that routes to this service if the
+# tool should be reachable outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-sizer
+  labels:
+    app: inference-sizer
+spec:
+  type: ClusterIP
+  selector:
+    app: inference-sizer
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

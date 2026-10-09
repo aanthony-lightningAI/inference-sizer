@@ -1,0 +1,73 @@
+# Deployment for the Lightning AI Inference Sizer.
+# The image serves the built frontend AND the API on one origin (port 8000),
+# so no separate web deployment is needed.
+#
+# IMAGE NOTE: `inference-sizer:latest` is a locally built tag (docker build).
+# For a real cluster, push it to your registry and set the full image ref
+# here (and add imagePullSecrets if the registry is private).
+#
+#   docker build -t inference-sizer:latest .
+#   kubectl apply -f k8s/
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-sizer
+  labels:
+    app: inference-sizer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inference-sizer
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: inference-sizer
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: inference-sizer
+          image: inference-sizer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: CORS_ORIGINS
+              value: ""  # comma-separated allowed origins; empty = same-origin only
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

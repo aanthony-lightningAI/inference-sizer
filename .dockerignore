@@ -1,0 +1,18 @@
+# Keep the build context small: image needs only requirements + sizer sources;
+# the frontend is rebuilt inside the node stage.
+.git
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.pytest_cache/**
+e2e
+tests
+docs
+probes
+samples
+fixtures
+inference-sizer.zip
+inference-sizer/web/node_modules
+inference-sizer/web/dist
+.cursor

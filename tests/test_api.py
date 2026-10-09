@@ -1,7 +1,6 @@
 """API integration: health, catalog, size, field errors, CORS, CLI agreement."""
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 

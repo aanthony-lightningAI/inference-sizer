@@ -1,4 +1,4 @@
-"""CLI: python -m sizer.cli [request.json] [--import scenario.json] [--export out.json]
+"""CLI: python -m sizer.cli [request.json] [--export out.json]
 
 Uses the exact same size() path as the API.
 """
@@ -10,7 +10,7 @@ import json
 import sys
 
 from sizer.engine import size
-from sizer.schemas import SizeRequest, SizingResult
+from sizer.schemas import SizeRequest
 
 
 def _result_from_payload(payload: dict) -> tuple[SizeRequest, dict | None]:

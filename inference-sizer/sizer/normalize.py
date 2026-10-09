@@ -6,10 +6,10 @@ values are surfaced, never silently defaulted where they would change results.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .hardware import get_preset, load_catalog
-from .schemas import ModelSpec, SourceRef
+from .schemas import ModelSpec
 
 
 class ProvenanceEntry(BaseModel):
@@ -75,7 +75,6 @@ HYBRID_ARCHITECTURES = (
     "DeepseekV4ForConditionalGeneration",
 )
 
-MLA_STATE_KEYS = ("kv_lora_rank", "qk_rope_head_dim")
 HYBRID_DOC = "docs/model-catalog-notes.md"
 
 
@@ -317,20 +316,6 @@ def from_config_json(config: dict, overrides: dict | None = None) -> NormalizedM
                          "supply a manual override")
     return NormalizedModel(spec=ModelSpec(**spec_kwargs), provenance=provenance, missing=missing,
                            unsupported_reason=unsupported)
-
-
-def from_manual(**kwargs) -> NormalizedModel:
-    spec = ModelSpec(source="manual", **kwargs)
-    prov = [
-        ProvenanceEntry(field=f, value=getattr(spec, f), source="manual")
-        for f in ("architecture", "attn", "kv_model", "layers", "attention_kv_layers",
-                  "kv_heads", "head_dim", "kv_lora_rank", "qk_rope_head_dim",
-                  "kv_bytes_per_token_override", "kv_fixed_bytes_per_sequence",
-                  "num_experts", "active_experts", "attention_heads", "hidden_size",
-                  "total_params", "active_params")
-        if getattr(spec, f) is not None
-    ]
-    return NormalizedModel(spec=spec, provenance=prov, missing=[])
 
 
 def preset_list() -> list[dict]:

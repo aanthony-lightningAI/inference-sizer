@@ -10,8 +10,6 @@ from .schemas import Catalog, HardwareProfile, ModelPreset
 
 DATA = Path(__file__).parent / "data" / "hardware.json"
 
-CATALOG_VERSION = 3
-
 
 @lru_cache(maxsize=1)
 def load_catalog() -> Catalog:

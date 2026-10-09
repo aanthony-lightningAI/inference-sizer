@@ -9,7 +9,6 @@ are accepted on import and migrated — see migrate_request_payload)
 
 from __future__ import annotations
 
-import math
 from enum import StrEnum
 from typing import Literal
 
@@ -24,7 +23,6 @@ FORMAT_BYTES: dict[str, float] = {"bf16": 2.0, "fp16": 2.0, "fp8": 1.0, "fp4": 0
 
 WeightFormat = Literal["bf16", "fp16", "fp8", "fp4"]
 KVDtype = Literal["bf16", "fp16", "fp8", "fp4"]
-ComputePrecision = Literal["bf16", "fp8", "fp4"]
 AttentionKind = Literal["mha", "gqa", "mla", "mqa", "hybrid"]
 KVModel = Literal["mha_gqa", "mla", "override"]
 
@@ -123,9 +121,6 @@ class ModelSpec(NonFiniteAwareModel):
 
     def weight_bytes_each(self) -> float:
         return FORMAT_BYTES[self.weight_format]
-
-    def kv_bytes_each(self) -> float:
-        return FORMAT_BYTES[self.kv_dtype]
 
     def effective_kv_layers(self) -> int:
         """Layers whose KV cache grows with context (full/MLA layers)."""
@@ -341,7 +336,7 @@ class ModelPreset(BaseModel):
 
 
 class Catalog(BaseModel):
-    catalog_version: int = 1
+    catalog_version: int = 3  # matches sizer/data/hardware.json; load_catalog always supplies it
     presets: list[ModelPreset]
     hardware_profiles: list[HardwareProfile]
     engines: list[dict]
@@ -426,10 +421,3 @@ class SizingResult(BaseModel):
     assumptions: list[str] = []
     traffic_derived: dict = {}
     benchmark: dict | None = None
-
-
-def finite_or_none(v: float | int | None) -> bool:
-    """True when v is a finite number (or None). Used by import validation."""
-    if v is None:
-        return True
-    return isinstance(v, (int, float)) and math.isfinite(v)

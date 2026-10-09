@@ -2,7 +2,7 @@
 
 import json
 
-from sizer.benchmarks import apply_calibration, compatibility_report, parse_profile
+from sizer.benchmarks import compatibility_report, parse_profile
 from sizer.engine import size
 from sizer.schemas import SizeRequest
 from sizer.cli import _example_request

@@ -41,4 +41,4 @@ memory demand.
 `SizeRequest` both call `size()`; outputs are identical for the default request
 and for the ttft_bound probe (both use the same pure function — agreement
 confirmed by construction and re-verified after each engine change via
-`tests/test_cli_api_agreement.py`).
+`tests/test_api.py::test_cli_api_agreement`).

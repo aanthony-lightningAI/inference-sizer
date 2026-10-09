@@ -25,7 +25,6 @@ from .schemas import (
     FORMAT_BYTES,
     CandidateRecord,
     DeploymentSpec,
-    Evidence,
     Feasibility,
     MemoryComponents,
     ModelSpec,
@@ -33,8 +32,6 @@ from .schemas import (
     SizingResult,
     WorkloadSpec,
 )
-
-GIB = 1024**3
 
 
 def kv_bytes_per_token(model: ModelSpec) -> int:
@@ -59,7 +56,7 @@ def kv_bytes_per_token(model: ModelSpec) -> int:
     if model.kv_model == "override":
         assert model.kv_bytes_per_token_override is not None  # schema-enforced
         return int(model.kv_bytes_per_token_override)
-    raise ValueError(f"unknown kv_model {model.kv_model!r}")
+    raise ValueError(f"unknown kv_model {model.kv_model!r}")  # unreachable: KVModel literal is exhaustive
 
 
 def context_lengths(workload: WorkloadSpec) -> tuple[int, int, str]:
@@ -225,19 +222,16 @@ def _evaluate_candidate(
     if heads is not None and heads % tp != 0:
         reasons.append(f"attention_heads={heads} not divisible by TP={tp}")
     if model.kv_model == "mha_gqa":
-        try:
-            mode, heads_per_dev = kv_sharding(model.kv_heads, tp)
-        except ValueError as e:
-            reasons.append(str(e))
+        mode, heads_per_dev = kv_sharding(model.kv_heads, tp)
+        if mode == "invalid":
+            reasons.append(
+                f"kv_heads={model.kv_heads} not divisible by TP={tp} and not replicable (< TP)"
+            )
             return CandidateRecord(gpus_per_replica=tp, feasible=False, rejection_reasons=reasons,
                                    kv_per_token_bytes=kv_bytes_per_token(model))
     else:
         # MLA and override caches hold one compressed stream replicated across TP.
         mode, heads_per_dev = "replicated", None
-    if heads is None:
-        # Divisibility cannot be verified without num_attention_heads; surfaced
-        # as an assumption instead of silently passing.
-        pass
     kv_per_tok_per_dev = _kv_bytes_per_token_per_device(model, tp)
     kv_fixed_per_dev = _kv_fixed_per_device(model, tp)
 
@@ -552,7 +546,7 @@ def size(req: SizeRequest, benchmark: dict | None = None) -> SizingResult:
             "request-rate and concurrent requirements sets serving replicas."
         )
 
-    # ---- evidence: benchmark calibration only via the adapter (Phase 4 wiring)
+    # ---- evidence: benchmark calibration only via the adapter
     if benchmark is not None or req.benchmark_profile_id:
         from .benchmarks import apply_calibration  # local import keeps engine standalone
 

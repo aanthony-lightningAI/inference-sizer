@@ -40,7 +40,7 @@ regression checks live in `tests/`.
    rejects both (covered by e2e checks 4–5 and `tests/`).
 
 CLI↔API agreement: both call the same pure `size()`; re-verified by
-`tests/test_cli_api_agreement.py`.
+`tests/test_api.py::test_cli_api_agreement`.
 
 ## 3. Hardware catalog
 

@@ -85,21 +85,6 @@ class BenchmarkProfile(BaseModel):
     latency_objectives: LatencyObjectives
     metrics: BenchmarkMetrics
 
-    def material_fields(self) -> dict:
-        return {
-            "architecture": self.architecture,
-            "attn": self.attn,
-            "total_params": self.total_params,
-            "quantization": self.quantization,
-            "weight_format": self.weight_format,
-            "kv_dtype": self.kv_dtype,
-            "engine_name": self.engine_name,
-            "engine_version": self.engine_version,
-            "hardware_profile_id": self.hardware_profile_id,
-            "gpus_per_replica": self.gpus_per_replica,
-            "prefix_behavior": self.prefix_behavior,
-        }
-
 
 def parse_profile(data: dict) -> BenchmarkProfile:
     if data.get("schema_version") != BENCHMARK_SCHEMA_VERSION:
